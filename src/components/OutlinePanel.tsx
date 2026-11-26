@@ -1,5 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { useI18n } from '../lib/i18n/I18nContext';
 import type { OutlineHeading } from '../lib/editor/markdownOps';
 
 interface OutlinePanelProps {
@@ -9,9 +10,10 @@ interface OutlinePanelProps {
 }
 
 export const OutlinePanel: React.FC<OutlinePanelProps> = ({ headings, onJump, onClose }) => {
+  const { t } = useI18n();
   return (
     <aside
-      aria-label="Struttura documento"
+      aria-label={t.outlineTitle}
       className="no-print flex h-full w-60 shrink-0 flex-col border-r"
       style={{
         backgroundColor: 'var(--md-surface-alt)',
@@ -23,12 +25,12 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({ headings, onJump, on
         style={{ borderColor: 'var(--md-border)' }}
       >
         <span className="text-xs font-semibold tracking-tight" style={{ color: 'var(--md-text)' }}>
-          Struttura documento
+          {t.outlineTitle}
         </span>
         <button
           type="button"
           onClick={onClose}
-          aria-label="Chiudi pannello struttura"
+          aria-label={t.outlineCloseAria}
           className="rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10"
           style={{ color: 'var(--md-text-muted)' }}
         >
@@ -39,12 +41,10 @@ export const OutlinePanel: React.FC<OutlinePanelProps> = ({ headings, onJump, on
       <div className="flex-1 overflow-y-auto p-2">
         {headings.length === 0 ? (
           <p className="px-2 py-4 text-xs" style={{ color: 'var(--md-text-muted)' }}>
-            Nessun titolo trovato. Usa <code className="font-mono">#</code>,{' '}
-            <code className="font-mono">##</code> o <code className="font-mono">###</code> per
-            creare una struttura navigabile.
+            {t.outlineEmpty}
           </p>
         ) : (
-          <nav aria-label="Indice dei titoli" className="space-y-0.5">
+          <nav aria-label={t.outlineNavAria} className="space-y-0.5">
             {headings.map((h) => (
               <button
                 key={`${h.line}-${h.offset}`}

@@ -1,6 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FolderOpen } from 'lucide-react';
-import type { AppTheme, FileEncoding, LineEnding, ViewMode } from '../lib/markitdown/types';
+import { FolderOpen, Moon, Sun } from 'lucide-react';
+import { useI18n } from '../lib/i18n/I18nContext';
+import { SUPPORTED_LOCALES } from '../lib/i18n/translations';
+import type {
+  AppTheme,
+  FileEncoding,
+  LanguagePreference,
+  LineEnding,
+  ResolvedTheme,
+  ViewMode,
+} from '../lib/markitdown/types';
 
 export interface MenuActions {
   onNewTab: () => void;
@@ -8,6 +17,7 @@ export interface MenuActions {
   onOpenMarkItDown: () => void;
   onSaveMd: () => void;
   onExportHtml: () => void;
+  onOpenPrintPreview: () => void;
   onPrintPdf: () => void;
   onCloseActiveTab: () => void;
   onOpenFind: (withReplace: boolean) => void;
@@ -21,6 +31,8 @@ export interface MenuActions {
   onToggleOutline: () => void;
   onToggleStatusBar: () => void;
   onChangeTheme: (theme: AppTheme) => void;
+  onToggleNightMode: () => void;
+  onChangeLanguage: (lang: LanguagePreference) => void;
   onOpenFolderPostIt: () => void;
   onOpenCrossPlatform: () => void;
   onToggleAiEnabled: () => void;
@@ -34,6 +46,7 @@ interface MenuBarProps {
   showOutline: boolean;
   showStatusBar: boolean;
   theme: AppTheme;
+  effectiveTheme: ResolvedTheme;
   encoding: FileEncoding;
   lineEnding: LineEnding;
   aiEnabled: boolean;
@@ -57,11 +70,13 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   showOutline,
   showStatusBar,
   theme,
+  effectiveTheme,
   encoding,
   lineEnding,
   aiEnabled,
   sessionRestore,
 }) => {
+  const { t, locale, languagePref } = useI18n();
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
 
@@ -82,75 +97,90 @@ export const MenuBar: React.FC<MenuBarProps> = ({
     };
   }, []);
 
+  const isDarkActive = effectiveTheme === 'dark';
+
   const menus: Record<MenuKey, { label: string; items: MenuItem[] }> = {
     file: {
-      label: 'File',
+      label: t.menuFile,
       items: [
-        { label: 'Nuova scheda', shortcut: 'Ctrl+N', onClick: actions.onNewTab },
-        { label: 'Apri file .md / .txt…', shortcut: 'Ctrl+O', onClick: actions.onOpenLocalFile },
-        { label: 'Importa documento con MarkItDown…', onClick: actions.onOpenMarkItDown },
+        { label: t.fileNewTab, shortcut: 'Ctrl+N', onClick: actions.onNewTab },
+        { label: t.fileOpenLocal, shortcut: 'Ctrl+O', onClick: actions.onOpenLocalFile },
+        { label: t.fileImportMarkItDown, onClick: actions.onOpenMarkItDown },
         { label: '', divider: true },
-        { label: 'Salva come .md', shortcut: 'Ctrl+S', onClick: actions.onSaveMd },
-        { label: 'Esporta HTML pulito', onClick: actions.onExportHtml },
-        { label: 'Stampa / Salva in PDF', shortcut: 'Ctrl+P', onClick: actions.onPrintPdf },
+        { label: t.fileSaveMd, shortcut: 'Ctrl+S', onClick: actions.onSaveMd },
+        { label: t.fileExportHtml, onClick: actions.onExportHtml },
+        { label: t.filePrintPreview, shortcut: 'Ctrl+Shift+P', onClick: actions.onOpenPrintPreview },
+        { label: t.filePrintPdf, shortcut: 'Ctrl+P', onClick: actions.onPrintPdf },
         { label: '', divider: true },
-        { label: 'Chiudi scheda corrente', onClick: actions.onCloseActiveTab },
+        { label: t.fileCloseTab, onClick: actions.onCloseActiveTab },
       ],
     },
     edit: {
-      label: 'Modifica',
+      label: t.menuEdit,
       items: [
-        { label: 'Trova (supporta * e ?)', shortcut: 'Ctrl+F', onClick: () => actions.onOpenFind(false) },
-        { label: 'Sostituisci…', shortcut: 'Ctrl+H', onClick: () => actions.onOpenFind(true) },
+        { label: t.editFind, shortcut: 'Ctrl+F', onClick: () => actions.onOpenFind(false) },
+        { label: t.editReplace, shortcut: 'Ctrl+H', onClick: () => actions.onOpenFind(true) },
         { label: '', divider: true },
-        { label: 'Inserisci Tabella…', shortcut: 'Ctrl+T', onClick: actions.onOpenTableDialog },
-        { label: 'Cancella formattazione Markdown', shortcut: 'Ctrl+Spazio', onClick: actions.onClearFormatting },
-        { label: 'Inserisci data e ora', shortcut: 'F5', onClick: actions.onInsertDateTime },
+        { label: t.editInsertTable, shortcut: 'Ctrl+T', onClick: actions.onOpenTableDialog },
+        { label: t.editClearFormatting, shortcut: 'Ctrl+Space', onClick: actions.onClearFormatting },
+        { label: t.editInsertDateTime, shortcut: 'F5', onClick: actions.onInsertDateTime },
       ],
     },
     format: {
-      label: 'Formato',
+      label: t.menuFormat,
       items: [
-        { label: 'A capo automatico', checked: wordWrap, onClick: actions.onToggleWordWrap },
+        { label: t.formatWordWrap, checked: wordWrap, onClick: actions.onToggleWordWrap },
         { label: '', divider: true },
-        { label: 'Codifica: UTF-8', checked: encoding === 'UTF-8', onClick: () => actions.onChangeEncoding('UTF-8') },
-        { label: 'Codifica: UTF-8 con BOM', checked: encoding === 'UTF-8-BOM', onClick: () => actions.onChangeEncoding('UTF-8-BOM') },
-        { label: 'Codifica: ANSI (Windows-1252)', checked: encoding === 'ANSI', onClick: () => actions.onChangeEncoding('ANSI') },
+        { label: t.formatEncodingUtf8, checked: encoding === 'UTF-8', onClick: () => actions.onChangeEncoding('UTF-8') },
+        { label: t.formatEncodingUtf8Bom, checked: encoding === 'UTF-8-BOM', onClick: () => actions.onChangeEncoding('UTF-8-BOM') },
+        { label: t.formatEncodingAnsi, checked: encoding === 'ANSI', onClick: () => actions.onChangeEncoding('ANSI') },
         { label: '', divider: true },
-        { label: 'Fine riga: Windows (CRLF)', checked: lineEnding === 'CRLF', onClick: () => actions.onChangeLineEnding('CRLF') },
-        { label: 'Fine riga: Unix / macOS / Linux (LF)', checked: lineEnding === 'LF', onClick: () => actions.onChangeLineEnding('LF') },
+        { label: t.formatEolCrlf, checked: lineEnding === 'CRLF', onClick: () => actions.onChangeLineEnding('CRLF') },
+        { label: t.formatEolLf, checked: lineEnding === 'LF', onClick: () => actions.onChangeLineEnding('LF') },
       ],
     },
     view: {
-      label: 'Visualizza',
+      label: t.menuView,
       items: [
-        { label: 'Solo Sorgente', shortcut: 'F6', checked: viewMode === 'source', onClick: () => actions.onChangeViewMode('source') },
-        { label: 'Vista Divisa (Scroll-Sync)', shortcut: 'Ctrl+E', checked: viewMode === 'split', onClick: () => actions.onChangeViewMode('split') },
-        { label: 'Solo Lettura / Anteprima', checked: viewMode === 'preview', onClick: () => actions.onChangeViewMode('preview') },
+        { label: t.viewSourceOnly, shortcut: 'F6', checked: viewMode === 'source', onClick: () => actions.onChangeViewMode('source') },
+        { label: t.viewSplit, shortcut: 'Ctrl+E', checked: viewMode === 'split', onClick: () => actions.onChangeViewMode('split') },
+        { label: t.viewPreviewOnly, checked: viewMode === 'preview', onClick: () => actions.onChangeViewMode('preview') },
         { label: '', divider: true },
-        { label: 'Struttura Documento (Outline)', shortcut: 'Ctrl+Shift+O', checked: showOutline, onClick: actions.onToggleOutline },
-        { label: 'Barra di Stato', checked: showStatusBar, onClick: actions.onToggleStatusBar },
+        { label: t.viewOutline, shortcut: 'Ctrl+Shift+O', checked: showOutline, onClick: actions.onToggleOutline },
+        { label: t.viewStatusBar, checked: showStatusBar, onClick: actions.onToggleStatusBar },
         { label: '', divider: true },
-        { label: 'Tema Chiaro', checked: theme === 'light', onClick: () => actions.onChangeTheme('light') },
-        { label: 'Tema Scuro', checked: theme === 'dark', onClick: () => actions.onChangeTheme('dark') },
-        { label: 'Tema Contrasto Elevato (Win)', checked: theme === 'high-contrast', onClick: () => actions.onChangeTheme('high-contrast') },
+        { label: t.viewThemeSystem, checked: theme === 'system', onClick: () => actions.onChangeTheme('system') },
+        { label: t.viewThemeLight, checked: theme === 'light', onClick: () => actions.onChangeTheme('light') },
+        { label: t.viewThemeDark, checked: theme === 'dark', onClick: () => actions.onChangeTheme('dark') },
+        { label: t.viewThemeHighContrast, checked: theme === 'high-contrast', onClick: () => actions.onChangeTheme('high-contrast') },
+        { label: '', divider: true },
+        {
+          label: `${t.viewLanguageSystem} (${locale.toUpperCase()})`,
+          checked: languagePref === 'system',
+          onClick: () => actions.onChangeLanguage('system'),
+        },
+        ...SUPPORTED_LOCALES.map((lang) => ({
+          label: lang.nativeName,
+          checked: languagePref === lang.code,
+          onClick: () => actions.onChangeLanguage(lang.code),
+        })),
       ],
     },
     tools: {
-      label: 'Strumenti',
+      label: t.menuTools,
       items: [
-        { label: 'Post-it Cartelle (MarkItDown)…', onClick: actions.onOpenFolderPostIt },
-        { label: 'Convertitore MarkItDown (File, URL, MCP)…', onClick: actions.onOpenMarkItDown },
-        { label: 'Kit Windows 7–11 & Multipiattaforma…', onClick: actions.onOpenCrossPlatform },
+        { label: t.toolsFolderPostIt, onClick: actions.onOpenFolderPostIt },
+        { label: t.toolsMarkItDown, onClick: actions.onOpenMarkItDown },
+        { label: t.toolsCrossPlatform, onClick: actions.onOpenCrossPlatform },
         { label: '', divider: true },
-        { label: 'Ripristino automatico sessione', checked: sessionRestore, onClick: actions.onToggleSessionRestore },
-        { label: 'Assistente AI opzionale (Ctrl+Q/D/M)', checked: aiEnabled, onClick: actions.onToggleAiEnabled },
+        { label: t.toolsSessionRestore, checked: sessionRestore, onClick: actions.onToggleSessionRestore },
+        { label: t.toolsAiAssistant, checked: aiEnabled, onClick: actions.onToggleAiEnabled },
       ],
     },
     help: {
-      label: 'Aiuto',
+      label: t.menuHelp,
       items: [
-        { label: 'Scorciatoie, Kit Win7–11 & Guida', onClick: actions.onOpenCrossPlatform },
+        { label: t.helpShortcutsGuide, onClick: actions.onOpenCrossPlatform },
       ],
     },
   };
@@ -158,14 +188,14 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   return (
     <header
       ref={barRef}
-      className="no-print flex items-center justify-between gap-4 border-b px-2 py-1 select-none"
+      className="no-print flex items-center justify-between gap-3 border-b px-2 py-1 select-none"
       style={{
         backgroundColor: 'var(--md-surface)',
         borderColor: 'var(--md-border)',
       }}
     >
       {/* Classic Windows menu bar */}
-      <nav aria-label="Menu principale" className="flex items-center gap-0.5 overflow-x-auto">
+      <nav aria-label={t.mainMenuAria} className="flex items-center gap-0.5 overflow-x-auto">
         {(Object.keys(menus) as MenuKey[]).map((key) => {
           const menu = menus[key];
           const isOpen = openMenu === key;
@@ -191,7 +221,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
               {isOpen && (
                 <div
                   role="menu"
-                  className="fixed z-50 mt-1 min-w-[260px] rounded-md border py-1 shadow-lg"
+                  className="fixed z-50 mt-1 max-h-[80vh] min-w-[265px] overflow-y-auto rounded-md border py-1 shadow-lg"
                   style={{
                     backgroundColor: 'var(--md-surface)',
                     borderColor: 'var(--md-border)',
@@ -240,11 +270,11 @@ export const MenuBar: React.FC<MenuBarProps> = ({
         })}
       </nav>
 
-      {/* Right actions: view switcher + primary Folder Post-it CTA */}
-      <div className="flex shrink-0 items-center gap-2">
+      {/* Right actions: view switcher + Night Mode toggle + primary Folder Post-it CTA */}
+      <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
         <div
           role="group"
-          aria-label="Modalità di visualizzazione"
+          aria-label={t.viewModeGroupAria}
           className="hidden items-center rounded-md border p-0.5 sm:flex"
           style={{
             backgroundColor: 'var(--md-chrome)',
@@ -253,9 +283,9 @@ export const MenuBar: React.FC<MenuBarProps> = ({
         >
           {(
             [
-              { id: 'source', label: 'Sorgente' },
-              { id: 'split', label: 'Divisa' },
-              { id: 'preview', label: 'Anteprima' },
+              { id: 'source', label: t.modeSourceShort },
+              { id: 'split', label: t.modeSplitShort },
+              { id: 'preview', label: t.modePreviewShort },
             ] as const
           ).map((mode) => {
             const active = viewMode === mode.id;
@@ -279,15 +309,31 @@ export const MenuBar: React.FC<MenuBarProps> = ({
 
         <button
           type="button"
+          onClick={actions.onToggleNightMode}
+          aria-pressed={isDarkActive}
+          aria-label={t.toggleNightModeAria}
+          title={isDarkActive ? t.nightModeTooltipOn : t.nightModeTooltipOff}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+          style={{
+            backgroundColor: isDarkActive ? 'var(--md-accent-soft)' : 'var(--md-chrome)',
+            borderColor: isDarkActive ? 'var(--md-accent)' : 'var(--md-border)',
+            color: isDarkActive ? 'var(--md-accent)' : 'var(--md-text)',
+          }}
+        >
+          {isDarkActive ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+        </button>
+
+        <button
+          type="button"
           onClick={actions.onOpenFolderPostIt}
-          className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium whitespace-nowrap shrink-0 transition-colors"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors"
           style={{
             backgroundColor: 'var(--md-accent)',
             color: 'var(--md-accent-fg)',
           }}
         >
           <FolderOpen className="h-3.5 w-3.5 shrink-0" />
-          <span>Post-it Cartelle</span>
+          <span>{t.folderPostItBtn}</span>
         </button>
       </div>
     </header>

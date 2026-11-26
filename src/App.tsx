@@ -7,6 +7,7 @@ import { MarkdownPreview } from './components/MarkdownPreview';
 import { MarkItDownModal } from './components/MarkItDownModal';
 import { MenuBar } from './components/MenuBar';
 import { OutlinePanel } from './components/OutlinePanel';
+import { PrintPreviewModal } from './components/PrintPreviewModal';
 import { StatusBar } from './components/StatusBar';
 import { TableDialog } from './components/TableDialog';
 import { TabStrip } from './components/TabStrip';
@@ -16,6 +17,13 @@ import {
   SESSION_STORAGE_KEY,
   type EditorTab,
 } from './data/seedTabs';
+import {
+  AUTOSAVE_INTERVAL_MS,
+  mergeAutoSaveIntoTabs,
+  readActiveTabAutoSave,
+  resolveEffectiveTheme,
+  writeActiveTabAutoSave,
+} from './lib/editor/autosave';
 import {
   clearMarkdownFormatting,
   computeDocumentStats,
@@ -28,16 +36,20 @@ import {
   toggleCheckboxAtLine,
   type OutlineHeading,
 } from './lib/editor/markdownOps';
+import { I18nProvider } from './lib/i18n/I18nContext';
+import { resolveLocale, TRANSLATIONS } from './lib/i18n/translations';
 import type {
   AppTheme,
   ConversionResponse,
   FileEncoding,
+  LanguagePreference,
   LineEnding,
   ViewMode,
 } from './lib/markitdown/types';
 
 interface SavedPrefs {
   theme: AppTheme;
+  language: LanguagePreference;
   viewMode: ViewMode;
   wordWrap: boolean;
   showOutline: boolean;
@@ -48,7 +60,8 @@ interface SavedPrefs {
 }
 
 const DEFAULT_PREFS: SavedPrefs = {
-  theme: 'light',
+  theme: 'system',
+  language: 'system',
   viewMode: 'split',
   wordWrap: true,
   showOutline: false,
@@ -68,24 +81,50 @@ function loadPrefs(): SavedPrefs {
   }
 }
 
-function loadInitialTabs(restore: boolean): { tabs: EditorTab[]; activeId: string } {
+function loadInitialTabs(restore: boolean): {
+  tabs: EditorTab[];
+  activeId: string;
+  recoveredAutoSave: boolean;
+  lastAutoSavedAt: string | null;
+} {
+  let baseTabs: EditorTab[] = INITIAL_TABS;
+  let baseActiveId: string = INITIAL_TABS[0].id;
+
   if (restore) {
     try {
       const raw = localStorage.getItem(SESSION_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as { tabs?: EditorTab[]; activeId?: string };
         if (Array.isArray(parsed.tabs) && parsed.tabs.length > 0) {
-          const validActive = parsed.tabs.some((t) => t.id === parsed.activeId)
+          baseTabs = parsed.tabs;
+          baseActiveId = parsed.tabs.some((t) => t.id === parsed.activeId)
             ? parsed.activeId!
             : parsed.tabs[0].id;
-          return { tabs: parsed.tabs, activeId: validActive };
         }
       }
     } catch {
       // Fall back to seed tabs
     }
   }
-  return { tabs: INITIAL_TABS, activeId: INITIAL_TABS[0].id };
+
+  // Merge active-tab crash-recovery auto-save snapshot if present
+  const snapshot = typeof localStorage !== 'undefined' ? readActiveTabAutoSave(localStorage) : null;
+  if (snapshot) {
+    const merged = mergeAutoSaveIntoTabs(baseTabs, snapshot);
+    return {
+      tabs: merged.tabs,
+      activeId: merged.recovered ? merged.activeId : baseActiveId,
+      recoveredAutoSave: merged.recovered,
+      lastAutoSavedAt: snapshot.savedAt,
+    };
+  }
+
+  return {
+    tabs: baseTabs,
+    activeId: baseActiveId,
+    recoveredAutoSave: false,
+    lastAutoSavedAt: null,
+  };
 }
 
 export default function App() {
@@ -99,6 +138,14 @@ export default function App() {
   const [activeTabId, setActiveTabId] = useState<string>(initialSession.activeId);
 
   const [theme, setTheme] = useState<AppTheme>(initialPrefs.theme);
+  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : false
+  );
+  const [languagePref, setLanguagePref] = useState<LanguagePreference>(initialPrefs.language);
+  const [systemLangVersion, setSystemLangVersion] = useState<number>(0);
+
   const [viewMode, setViewMode] = useState<ViewMode>(initialPrefs.viewMode);
   const [wordWrap, setWordWrap] = useState<boolean>(initialPrefs.wordWrap);
   const [showOutline, setShowOutline] = useState<boolean>(initialPrefs.showOutline);
@@ -111,6 +158,9 @@ export default function App() {
   const [cursorPos, setCursorPos] = useState<number>(0);
   const [pastedAssets, setPastedAssets] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
+  const [lastAutoSavedAt, setLastAutoSavedAt] = useState<string | null>(
+    initialSession.lastAutoSavedAt
+  );
 
   // Modals & Find bar
   const [findOpen, setFindOpen] = useState(false);
@@ -121,6 +171,7 @@ export default function App() {
   const [activeMatchIdx, setActiveMatchIdx] = useState(0);
 
   const [tableOpen, setTableOpen] = useState(false);
+  const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [markitdownOpen, setMarkitdownOpen] = useState(false);
   const [crossPlatformOpen, setCrossPlatformOpen] = useState(false);
@@ -134,20 +185,62 @@ export default function App() {
     () => tabs.find((t) => t.id === activeTabId) ?? tabs[0],
     [tabs, activeTabId]
   );
+  const activeTabRef = useRef<EditorTab>(activeTab);
+  activeTabRef.current = activeTab;
 
-  // Apply theme classes to <html>
+  const locale = useMemo(() => {
+    void systemLangVersion;
+    return resolveLocale(languagePref);
+  }, [languagePref, systemLangVersion]);
+  const t = TRANSLATIONS[locale];
+
+  const effectiveTheme = useMemo(
+    () => resolveEffectiveTheme(theme, systemPrefersDark),
+    [theme, systemPrefersDark]
+  );
+
+  // Sync <html lang> and document title with resolved locale
+  useEffect(() => {
+    document.documentElement.lang = locale;
+  }, [locale]);
+
+  // Listen for OS/browser language changes when set to 'system'
+  useEffect(() => {
+    const onLanguageChange = () => setSystemLangVersion((v) => v + 1);
+    window.addEventListener('languagechange', onLanguageChange);
+    return () => window.removeEventListener('languagechange', onLanguageChange);
+  }, []);
+
+  // Listen for OS dark-mode changes
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (ev: MediaQueryListEvent) => setSystemPrefersDark(ev.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  // Apply resolved theme classes to <html>
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove('dark', 'high-contrast');
-    if (theme === 'dark') root.classList.add('dark');
-    if (theme === 'high-contrast') root.classList.add('high-contrast');
-  }, [theme]);
+    if (effectiveTheme === 'dark') root.classList.add('dark');
+    if (effectiveTheme === 'high-contrast') root.classList.add('high-contrast');
+  }, [effectiveTheme]);
+
+  // Notify if an auto-saved snapshot was recovered after a crash/reload
+  useEffect(() => {
+    if (initialSession.recoveredAutoSave) {
+      setNotice(TRANSLATIONS[resolveLocale(initialPrefs.language)].noticeRecoveredAutoSave);
+    }
+  }, [initialSession.recoveredAutoSave, initialPrefs.language]);
 
   // Persist preferences
   useEffect(() => {
     try {
       const prefs: SavedPrefs = {
         theme,
+        language: languagePref,
         viewMode,
         wordWrap,
         showOutline,
@@ -160,9 +253,19 @@ export default function App() {
     } catch {
       // Ignore storage quota errors
     }
-  }, [theme, viewMode, wordWrap, showOutline, showStatusBar, zoom, sessionRestore, aiEnabled]);
+  }, [
+    theme,
+    languagePref,
+    viewMode,
+    wordWrap,
+    showOutline,
+    showStatusBar,
+    zoom,
+    sessionRestore,
+    aiEnabled,
+  ]);
 
-  // Auto-save session tabs to localStorage
+  // Persist full session tabs to localStorage when session restore is enabled
   useEffect(() => {
     if (!sessionRestore) return;
     try {
@@ -174,6 +277,26 @@ export default function App() {
       // Ignore storage quota errors
     }
   }, [tabs, activeTabId, sessionRestore]);
+
+  // Auto-save mechanism: serialize current active tab content to localStorage every 30 seconds
+  useEffect(() => {
+    const persistActiveTab = () => {
+      const snap = writeActiveTabAutoSave(localStorage, activeTabRef.current);
+      if (snap) {
+        setLastAutoSavedAt(snap.savedAt);
+      }
+    };
+
+    const timer = window.setInterval(persistActiveTab, AUTOSAVE_INTERVAL_MS);
+    window.addEventListener('beforeunload', persistActiveTab);
+    window.addEventListener('pagehide', persistActiveTab);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('beforeunload', persistActiveTab);
+      window.removeEventListener('pagehide', persistActiveTab);
+    };
+  }, []);
 
   // Transient subtle notice banner
   const showNotice = useCallback((msg: string) => {
@@ -603,6 +726,9 @@ export default function App() {
         e.preventDefault();
         setFindOpen(true);
         setShowReplace(true);
+      } else if (mod && e.key.toLowerCase() === 'p' && e.shiftKey) {
+        e.preventDefault();
+        setPrintPreviewOpen(true);
       } else if (mod && e.key.toLowerCase() === 't') {
         e.preventDefault();
         setTableOpen(true);
@@ -743,251 +869,280 @@ export default function App() {
     });
   };
 
+  const handleToggleNightMode = useCallback(() => {
+    setTheme(effectiveTheme === 'dark' ? 'light' : 'dark');
+  }, [effectiveTheme]);
+
   return (
-    <div
-      className="flex h-screen flex-col overflow-hidden"
-      style={{ backgroundColor: 'var(--md-bg)', color: 'var(--md-text)' }}
-      onWheel={handleEditorWheel}
+    <I18nProvider
+      locale={locale}
+      languagePref={languagePref}
+      setLanguagePref={setLanguagePref}
     >
-      {/* Hidden local file input for Ctrl+O */}
-      <input
-        ref={openLocalInputRef}
-        type="file"
-        className="hidden"
-        onChange={(e) => {
-          void handleOpenLocalFile(e.target.files?.[0]);
-          e.target.value = '';
-        }}
-      />
+      <div
+        className="flex h-screen flex-col overflow-hidden"
+        style={{ backgroundColor: 'var(--md-bg)', color: 'var(--md-text)' }}
+        onWheel={handleEditorWheel}
+      >
+        {/* Hidden local file input for Ctrl+O */}
+        <input
+          ref={openLocalInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => {
+            void handleOpenLocalFile(e.target.files?.[0]);
+            e.target.value = '';
+          }}
+        />
 
-      {/* Row 1: Windows 11 Notepad Tabs */}
-      <TabStrip
-        tabs={tabs}
-        activeTabId={activeTab.id}
-        onSelectTab={(id) => {
-          setActiveTabId(id);
-          setCursorPos(0);
-        }}
-        onCloseTab={handleCloseTab}
-        onNewTab={handleNewTab}
-      />
+        {/* Row 1: Windows 11 Notepad Tabs */}
+        <TabStrip
+          tabs={tabs}
+          activeTabId={activeTab.id}
+          onSelectTab={(id) => {
+            setActiveTabId(id);
+            setCursorPos(0);
+          }}
+          onCloseTab={handleCloseTab}
+          onNewTab={handleNewTab}
+        />
 
-      {/* Row 2: Classic Windows Menu Bar + View Switch + Post-it Cartelle CTA */}
-      <MenuBar
-        viewMode={viewMode}
-        wordWrap={wordWrap}
-        showOutline={showOutline}
-        showStatusBar={showStatusBar}
-        theme={theme}
-        encoding={activeTab.encoding}
-        lineEnding={activeTab.lineEnding}
-        aiEnabled={aiEnabled}
-        sessionRestore={sessionRestore}
-        actions={{
-          onNewTab: handleNewTab,
-          onOpenLocalFile: () => openLocalInputRef.current?.click(),
-          onOpenMarkItDown: () => setMarkitdownOpen(true),
-          onSaveMd: handleSaveMd,
-          onExportHtml: handleExportHtml,
-          onPrintPdf: () => window.print(),
-          onCloseActiveTab: () => handleCloseTab(activeTab.id),
-          onOpenFind: (withReplace) => {
+        {/* Row 2: Classic Windows Menu Bar + View Switch + Night Mode + Post-it Cartelle CTA */}
+        <MenuBar
+          viewMode={viewMode}
+          wordWrap={wordWrap}
+          showOutline={showOutline}
+          showStatusBar={showStatusBar}
+          theme={theme}
+          effectiveTheme={effectiveTheme}
+          encoding={activeTab.encoding}
+          lineEnding={activeTab.lineEnding}
+          aiEnabled={aiEnabled}
+          sessionRestore={sessionRestore}
+          actions={{
+            onNewTab: handleNewTab,
+            onOpenLocalFile: () => openLocalInputRef.current?.click(),
+            onOpenMarkItDown: () => setMarkitdownOpen(true),
+            onSaveMd: handleSaveMd,
+            onExportHtml: handleExportHtml,
+            onOpenPrintPreview: () => setPrintPreviewOpen(true),
+            onPrintPdf: () => window.print(),
+            onCloseActiveTab: () => handleCloseTab(activeTab.id),
+            onOpenFind: (withReplace) => {
+              setFindOpen(true);
+              setShowReplace(withReplace);
+            },
+            onClearFormatting: handleClearFormatting,
+            onOpenTableDialog: () => setTableOpen(true),
+            onInsertDateTime: handleInsertDateTime,
+            onToggleWordWrap: () => setWordWrap((w) => !w),
+            onChangeEncoding: (enc) => updateActiveTab((tab) => ({ ...tab, encoding: enc })),
+            onChangeLineEnding: (le) => updateActiveTab((tab) => ({ ...tab, lineEnding: le })),
+            onChangeViewMode: setViewMode,
+            onToggleOutline: () => setShowOutline((o) => !o),
+            onToggleStatusBar: () => setShowStatusBar((s) => !s),
+            onChangeTheme: setTheme,
+            onToggleNightMode: handleToggleNightMode,
+            onChangeLanguage: setLanguagePref,
+            onOpenFolderPostIt: () => setFolderModalOpen(true),
+            onOpenCrossPlatform: () => setCrossPlatformOpen(true),
+            onToggleAiEnabled: () => setAiEnabled((a) => !a),
+            onToggleSessionRestore: () => setSessionRestore((r) => !r),
+          }}
+        />
+
+        {/* Row 3: Slim Markdown Formatting Toolbar */}
+        <FormattingBar
+          onWrap={handleWrapSelection}
+          onPrefixLine={handlePrefixLine}
+          onOpenTable={() => setTableOpen(true)}
+          onClearFormatting={handleClearFormatting}
+          onToggleOutline={() => setShowOutline((o) => !o)}
+          showOutline={showOutline}
+          onOpenFind={() => {
             setFindOpen(true);
-            setShowReplace(withReplace);
-          },
-          onClearFormatting: handleClearFormatting,
-          onOpenTableDialog: () => setTableOpen(true),
-          onInsertDateTime: handleInsertDateTime,
-          onToggleWordWrap: () => setWordWrap((w) => !w),
-          onChangeEncoding: (enc) => updateActiveTab((t) => ({ ...t, encoding: enc })),
-          onChangeLineEnding: (le) => updateActiveTab((t) => ({ ...t, lineEnding: le })),
-          onChangeViewMode: setViewMode,
-          onToggleOutline: () => setShowOutline((o) => !o),
-          onToggleStatusBar: () => setShowStatusBar((s) => !s),
-          onChangeTheme: setTheme,
-          onOpenFolderPostIt: () => setFolderModalOpen(true),
-          onOpenCrossPlatform: () => setCrossPlatformOpen(true),
-          onToggleAiEnabled: () => setAiEnabled((a) => !a),
-          onToggleSessionRestore: () => setSessionRestore((r) => !r),
-        }}
-      />
+            setShowReplace(false);
+          }}
+          onOpenPrintPreview={() => setPrintPreviewOpen(true)}
+          onOpenMarkItDown={() => setMarkitdownOpen(true)}
+          viewMode={viewMode}
+          onCycleViewMode={cycleViewMode}
+          aiEnabled={aiEnabled}
+          aiBusy={aiBusy}
+          onRunAiAssist={(m) => void handleRunAiAssist(m)}
+        />
 
-      {/* Row 3: Slim Markdown Formatting Toolbar */}
-      <FormattingBar
-        onWrap={handleWrapSelection}
-        onPrefixLine={handlePrefixLine}
-        onOpenTable={() => setTableOpen(true)}
-        onClearFormatting={handleClearFormatting}
-        onToggleOutline={() => setShowOutline((o) => !o)}
-        showOutline={showOutline}
-        onOpenFind={() => {
-          setFindOpen(true);
-          setShowReplace(false);
-        }}
-        onOpenMarkItDown={() => setMarkitdownOpen(true)}
-        viewMode={viewMode}
-        onCycleViewMode={cycleViewMode}
-        aiEnabled={aiEnabled}
-        aiBusy={aiBusy}
-        onRunAiAssist={(m) => void handleRunAiAssist(m)}
-      />
+        {/* Main Workspace (hidden during print if Print Preview modal is handling the print sheet) */}
+        <main
+          className={`relative flex min-h-0 flex-1 overflow-hidden ${
+            printPreviewOpen ? 'no-print' : ''
+          }`}
+        >
+          {showOutline && (
+            <OutlinePanel
+              headings={outline}
+              onJump={handleJumpToHeading}
+              onClose={() => setShowOutline(false)}
+            />
+          )}
 
-      {/* Main Workspace */}
-      <main className="relative flex min-h-0 flex-1 overflow-hidden">
-        {showOutline && (
-          <OutlinePanel
-            headings={outline}
-            onJump={handleJumpToHeading}
-            onClose={() => setShowOutline(false)}
-          />
-        )}
+          <div className="relative flex min-w-0 flex-1 overflow-hidden">
+            <FindReplaceBar
+              open={findOpen}
+              showReplace={showReplace}
+              query={findQuery}
+              replaceText={replaceText}
+              caseSensitive={caseSensitive}
+              matches={findMatches}
+              activeMatchIndex={activeMatchIdx}
+              onChangeQuery={setFindQuery}
+              onChangeReplace={setReplaceText}
+              onToggleCaseSensitive={() => setCaseSensitive((c) => !c)}
+              onToggleShowReplace={() => setShowReplace((s) => !s)}
+              onPrev={() => selectMatch(activeMatchIdx - 1)}
+              onNext={() => selectMatch(activeMatchIdx + 1)}
+              onReplaceOne={handleReplaceOne}
+              onReplaceAll={handleReplaceAll}
+              onClose={() => setFindOpen(false)}
+            />
 
-        <div className="relative flex min-w-0 flex-1 overflow-hidden">
-          <FindReplaceBar
-            open={findOpen}
-            showReplace={showReplace}
-            query={findQuery}
-            replaceText={replaceText}
-            caseSensitive={caseSensitive}
-            matches={findMatches}
-            activeMatchIndex={activeMatchIdx}
-            onChangeQuery={setFindQuery}
-            onChangeReplace={setReplaceText}
-            onToggleCaseSensitive={() => setCaseSensitive((c) => !c)}
-            onToggleShowReplace={() => setShowReplace((s) => !s)}
-            onPrev={() => selectMatch(activeMatchIdx - 1)}
-            onNext={() => selectMatch(activeMatchIdx + 1)}
-            onReplaceOne={handleReplaceOne}
-            onReplaceAll={handleReplaceAll}
-            onClose={() => setFindOpen(false)}
-          />
-
-          {/* Source Editor Pane */}
-          {(viewMode === 'source' || viewMode === 'split') && (
-            <section
-              aria-label="Editor sorgente Markdown"
-              className={`no-print flex min-w-0 flex-1 flex-col ${
-                viewMode === 'split' ? 'border-r' : ''
-              }`}
-              style={{
-                backgroundColor: 'var(--md-surface)',
-                borderColor: 'var(--md-border)',
-              }}
-            >
-              <label htmlFor="mdpad-editor" className="sr-only">
-                Contenuto Markdown di {activeTab.title}
-              </label>
-              <textarea
-                id="mdpad-editor"
-                ref={textareaRef}
-                value={activeTab.content}
-                readOnly={activeTab.readOnly}
-                spellCheck
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setCursorPos(e.target.selectionStart);
-                  updateActiveTab((t) => ({ ...t, content: val }));
-                }}
-                onSelect={(e) => setCursorPos(e.currentTarget.selectionStart)}
-                onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart)}
-                onClick={(e) => setCursorPos(e.currentTarget.selectionStart)}
-                onKeyDown={handleEditorKeyDown}
-                onPaste={handleEditorPaste}
-                onScroll={handleEditorScroll}
-                placeholder="Inizia a scrivere in Markdown… (premi F6 per cambiare vista, Ctrl+T per una tabella, oppure apri Post-it Cartelle)"
-                className={`md-editor-textarea h-full w-full flex-1 resize-none border-0 p-5 leading-relaxed outline-none sm:px-7 ${
-                  wordWrap ? 'whitespace-pre-wrap' : 'overflow-x-auto whitespace-pre'
+            {/* Source Editor Pane */}
+            {(viewMode === 'source' || viewMode === 'split') && (
+              <section
+                aria-label={t.editorRegionAria}
+                className={`no-print flex min-w-0 flex-1 flex-col ${
+                  viewMode === 'split' ? 'border-r' : ''
                 }`}
                 style={{
                   backgroundColor: 'var(--md-surface)',
-                  color: 'var(--md-text)',
-                  fontSize: `${Math.round(14 * (zoom / 100))}px`,
+                  borderColor: 'var(--md-border)',
                 }}
-              />
-            </section>
-          )}
+              >
+                <label htmlFor="mdpad-editor" className="sr-only">
+                  {activeTab.title}
+                </label>
+                <textarea
+                  id="mdpad-editor"
+                  ref={textareaRef}
+                  value={activeTab.content}
+                  readOnly={activeTab.readOnly}
+                  spellCheck
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setCursorPos(e.target.selectionStart);
+                    updateActiveTab((tab) => ({ ...tab, content: val }));
+                  }}
+                  onSelect={(e) => setCursorPos(e.currentTarget.selectionStart)}
+                  onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart)}
+                  onClick={(e) => setCursorPos(e.currentTarget.selectionStart)}
+                  onKeyDown={handleEditorKeyDown}
+                  onPaste={handleEditorPaste}
+                  onScroll={handleEditorScroll}
+                  placeholder={t.editorPlaceholder}
+                  className={`md-editor-textarea h-full w-full flex-1 resize-none border-0 p-5 leading-relaxed outline-none sm:px-7 ${
+                    wordWrap ? 'whitespace-pre-wrap' : 'overflow-x-auto whitespace-pre'
+                  }`}
+                  style={{
+                    backgroundColor: 'var(--md-surface)',
+                    color: 'var(--md-text)',
+                    fontSize: `${Math.round(14 * (zoom / 100))}px`,
+                  }}
+                />
+              </section>
+            )}
 
-          {/* Rendered Preview Pane */}
-          {(viewMode === 'preview' || viewMode === 'split') && (
-            <section
-              aria-label="Anteprima renderizzata"
-              className="min-w-0 flex-1 overflow-hidden"
-            >
-              <MarkdownPreview
-                markdown={activeTab.content}
-                zoom={zoom}
-                assets={pastedAssets}
-                onToggleCheckboxLine={handleToggleCheckboxLine}
-                scrollRef={previewScrollRef}
-                onScroll={handlePreviewScroll}
-              />
-            </section>
-          )}
-        </div>
-
-        {/* Transient status notice */}
-        {notice && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="no-print absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-md border px-3.5 py-1.5 text-xs font-medium shadow-md"
-            style={{
-              backgroundColor: 'var(--md-surface)',
-              borderColor: 'var(--md-accent)',
-              color: 'var(--md-text)',
-            }}
-          >
-            {notice}
+            {/* Rendered Preview Pane */}
+            {(viewMode === 'preview' || viewMode === 'split') && (
+              <section
+                aria-label={t.previewRegionAria}
+                className="min-w-0 flex-1 overflow-hidden"
+              >
+                <MarkdownPreview
+                  markdown={activeTab.content}
+                  zoom={zoom}
+                  assets={pastedAssets}
+                  onToggleCheckboxLine={handleToggleCheckboxLine}
+                  scrollRef={previewScrollRef}
+                  onScroll={handlePreviewScroll}
+                />
+              </section>
+            )}
           </div>
+
+          {/* Transient status notice */}
+          {notice && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="no-print absolute bottom-3 left-1/2 z-40 -translate-x-1/2 rounded-md border px-3.5 py-1.5 text-xs font-medium shadow-md"
+              style={{
+                backgroundColor: 'var(--md-surface)',
+                borderColor: 'var(--md-accent)',
+                color: 'var(--md-text)',
+              }}
+            >
+              {notice}
+            </div>
+          )}
+        </main>
+
+        {/* Bottom Status Bar */}
+        {showStatusBar && (
+          <StatusBar
+            stats={stats}
+            encoding={activeTab.encoding}
+            lineEnding={activeTab.lineEnding}
+            zoom={zoom}
+            readOnly={activeTab.readOnly}
+            lastAutoSavedAt={lastAutoSavedAt}
+            onChangeEncoding={(enc) => updateActiveTab((tab) => ({ ...tab, encoding: enc }))}
+            onChangeLineEnding={(le) => updateActiveTab((tab) => ({ ...tab, lineEnding: le }))}
+            onChangeZoom={setZoom}
+          />
         )}
-      </main>
 
-      {/* Bottom Status Bar */}
-      {showStatusBar && (
-        <StatusBar
-          stats={stats}
-          encoding={activeTab.encoding}
-          lineEnding={activeTab.lineEnding}
-          zoom={zoom}
-          readOnly={activeTab.readOnly}
-          onChangeEncoding={(enc) => updateActiveTab((t) => ({ ...t, encoding: enc }))}
-          onChangeLineEnding={(le) => updateActiveTab((t) => ({ ...t, lineEnding: le }))}
-          onChangeZoom={setZoom}
+        {/* Dialogs & Workbenches */}
+        <TableDialog
+          open={tableOpen}
+          onClose={() => setTableOpen(false)}
+          onInsert={handleInsertAtCursor}
         />
-      )}
 
-      {/* Dialogs & Workbenches */}
-      <TableDialog
-        open={tableOpen}
-        onClose={() => setTableOpen(false)}
-        onInsert={handleInsertAtCursor}
-      />
+        <PrintPreviewModal
+          open={printPreviewOpen}
+          onClose={() => setPrintPreviewOpen(false)}
+          title={activeTab.title}
+          markdown={activeTab.content}
+          assets={pastedAssets}
+        />
 
-      <FolderPostItModal
-        open={folderModalOpen}
-        onClose={() => setFolderModalOpen(false)}
-        onOpenInEditor={(title, md) => {
-          openDocumentInNewTab(title, md, 'Post-it Cartella');
-          showNotice(`Aperto "${title}" nell’editor MDPad.`);
-        }}
-      />
+        <FolderPostItModal
+          open={folderModalOpen}
+          onClose={() => setFolderModalOpen(false)}
+          onOpenInEditor={(title, md) => {
+            openDocumentInNewTab(title, md, 'Post-it');
+            showNotice(`${title}`);
+          }}
+        />
 
-      <MarkItDownModal
-        open={markitdownOpen}
-        onClose={() => setMarkitdownOpen(false)}
-        onOpenConverted={handleOpenConverted}
-      />
+        <MarkItDownModal
+          open={markitdownOpen}
+          onClose={() => setMarkitdownOpen(false)}
+          onOpenConverted={handleOpenConverted}
+        />
 
-      <CrossPlatformModal
-        open={crossPlatformOpen}
-        onClose={() => setCrossPlatformOpen(false)}
-        theme={theme}
-        onChangeTheme={setTheme}
-        sessionRestore={sessionRestore}
-        onToggleSessionRestore={() => setSessionRestore((r) => !r)}
-        aiEnabled={aiEnabled}
-        onToggleAiEnabled={() => setAiEnabled((a) => !a)}
-      />
-    </div>
+        <CrossPlatformModal
+          open={crossPlatformOpen}
+          onClose={() => setCrossPlatformOpen(false)}
+          theme={theme}
+          onChangeTheme={setTheme}
+          sessionRestore={sessionRestore}
+          onToggleSessionRestore={() => setSessionRestore((r) => !r)}
+          aiEnabled={aiEnabled}
+          onToggleAiEnabled={() => setAiEnabled((a) => !a)}
+          lastAutoSavedAt={lastAutoSavedAt}
+        />
+      </div>
+    </I18nProvider>
   );
 }

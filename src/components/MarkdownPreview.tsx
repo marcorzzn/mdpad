@@ -1,6 +1,7 @@
 import React, { createContext, useContext } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useI18n } from '../lib/i18n/I18nContext';
 
 const TaskLineContext = createContext<number>(0);
 
@@ -19,6 +20,7 @@ const TaskCheckbox: React.FC<{
   onToggle: (lineNumber: number) => void;
 }> = ({ checked, directLine, onToggle }) => {
   const parentLine = useContext(TaskLineContext);
+  const { t } = useI18n();
   const lineNum = directLine > 0 ? directLine : parentLine;
   return (
     <input
@@ -27,7 +29,7 @@ const TaskCheckbox: React.FC<{
       onChange={() => {
         if (lineNum > 0) onToggle(lineNum);
       }}
-      aria-label={lineNum > 0 ? `Attività riga ${lineNum}` : 'Attività'}
+      aria-label={lineNum > 0 ? `${t.taskRowAria} ${lineNum}` : t.taskGenericAria}
       className="h-4 w-4 cursor-pointer accent-blue-600"
     />
   );
@@ -41,11 +43,12 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   scrollRef,
   onScroll,
 }) => {
+  const { t } = useI18n();
   return (
     <div
       ref={scrollRef}
       onScroll={onScroll}
-      aria-label="Anteprima documento Markdown"
+      aria-label={t.previewArticleAria}
       className="print-only-preview h-full overflow-y-auto px-6 py-5 sm:px-8"
       style={{
         backgroundColor: 'var(--md-surface)',
@@ -86,7 +89,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
               return (
                 <img
                   src={resolved}
-                  alt={props.alt ?? 'Immagine documento'}
+                  alt={props.alt ?? 'Image'}
                   referrerPolicy="no-referrer"
                   loading="lazy"
                 />
@@ -105,7 +108,7 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
             },
           }}
         >
-          {markdown || '*Documento vuoto.*'}
+          {markdown || t.emptyDocPreview}
         </ReactMarkdown>
       </article>
     </div>

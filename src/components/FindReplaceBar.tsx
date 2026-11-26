@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
+import { useI18n } from '../lib/i18n/I18nContext';
 import type { WildcardMatch } from '../lib/editor/markdownOps';
 
 interface FindReplaceBarProps {
@@ -39,12 +40,13 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
   onReplaceAll,
   onClose,
 }) => {
+  const { t } = useI18n();
   if (!open) return null;
 
   return (
     <div
       role="region"
-      aria-label="Trova e sostituisci"
+      aria-label={t.findRegionAria}
       className="no-print absolute top-2 right-3 z-30 w-[340px] max-w-[calc(100%-1.5rem)] rounded-lg border p-2.5 shadow-lg"
       style={{
         backgroundColor: 'var(--md-surface)',
@@ -54,7 +56,7 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
     >
       <div className="flex items-center gap-1.5">
         <label htmlFor="find-query-input" className="sr-only">
-          Cerca nel documento (supporta caratteri jolly * e ?)
+          {t.findPlaceholder}
         </label>
         <input
           id="find-query-input"
@@ -71,7 +73,7 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
               onClose();
             }
           }}
-          placeholder="Trova (* e ? supportati)…"
+          placeholder={t.findPlaceholder}
           className="min-w-0 flex-1 rounded border px-2 py-1 font-mono text-xs"
           style={{
             backgroundColor: 'var(--md-surface-alt)',
@@ -91,8 +93,8 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
           type="button"
           onClick={onToggleCaseSensitive}
           aria-pressed={caseSensitive}
-          aria-label="Maiuscole/minuscole"
-          title="Distingui maiuscole e minuscole"
+          aria-label={t.findCaseSensitive}
+          title={t.findCaseSensitive}
           className="rounded border px-1.5 py-1 font-mono text-[11px]"
           style={{
             borderColor: caseSensitive ? 'var(--md-accent)' : 'var(--md-border)',
@@ -107,7 +109,7 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
           type="button"
           onClick={onPrev}
           disabled={matches.length === 0}
-          aria-label="Risultato precedente"
+          aria-label={t.findPrevAria}
           className="rounded p-1 transition-colors hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10"
         >
           <ChevronUp className="h-3.5 w-3.5" />
@@ -117,7 +119,7 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
           type="button"
           onClick={onNext}
           disabled={matches.length === 0}
-          aria-label="Risultato successivo"
+          aria-label={t.findNextAria}
           className="rounded p-1 transition-colors hover:bg-black/5 disabled:opacity-40 dark:hover:bg-white/10"
         >
           <ChevronDown className="h-3.5 w-3.5" />
@@ -126,7 +128,7 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Chiudi barra ricerca"
+          aria-label={t.findCloseAria}
           className="rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10"
         >
           <X className="h-3.5 w-3.5" />
@@ -140,24 +142,24 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
           className="text-[11px] underline underline-offset-2"
           style={{ color: 'var(--md-text-muted)' }}
         >
-          {showReplace ? 'Nascondi sostituzione' : 'Mostra sostituisci'}
+          {showReplace ? t.findHideReplace : t.findShowReplace}
         </button>
         <span className="text-[11px]" style={{ color: 'var(--md-text-muted)' }}>
-          Wildcard: * (qualsiasi) · ? (1 carattere)
+          {t.findWildcardHint}
         </span>
       </div>
 
       {showReplace && (
         <div className="mt-2 flex items-center gap-1.5">
           <label htmlFor="replace-text-input" className="sr-only">
-            Sostituisci con
+            {t.replacePlaceholder}
           </label>
           <input
             id="replace-text-input"
             type="text"
             value={replaceText}
             onChange={(e) => onChangeReplace(e.target.value)}
-            placeholder="Sostituisci con…"
+            placeholder={t.replacePlaceholder}
             className="min-w-0 flex-1 rounded border px-2 py-1 font-mono text-xs"
             style={{
               backgroundColor: 'var(--md-surface-alt)',
@@ -172,7 +174,7 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
             className="rounded border px-2 py-1 text-xs font-medium whitespace-nowrap disabled:opacity-40"
             style={{ borderColor: 'var(--md-border)', color: 'var(--md-text)' }}
           >
-            Sostituisci
+            {t.replaceOneBtn}
           </button>
           <button
             type="button"
@@ -181,7 +183,7 @@ export const FindReplaceBar: React.FC<FindReplaceBarProps> = ({
             className="rounded px-2 py-1 text-xs font-medium whitespace-nowrap disabled:opacity-40"
             style={{ backgroundColor: 'var(--md-accent)', color: 'var(--md-accent-fg)' }}
           >
-            Tutti
+            {t.replaceAllBtn}
           </button>
         </div>
       )}

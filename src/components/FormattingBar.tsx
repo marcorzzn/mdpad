@@ -10,10 +10,12 @@ import {
   Italic,
   List,
   ListTree,
+  Printer,
   Search,
   Strikethrough,
   Table,
 } from 'lucide-react';
+import { useI18n } from '../lib/i18n/I18nContext';
 import type { ViewMode } from '../lib/markitdown/types';
 
 interface FormattingBarProps {
@@ -24,6 +26,7 @@ interface FormattingBarProps {
   onToggleOutline: () => void;
   showOutline: boolean;
   onOpenFind: () => void;
+  onOpenPrintPreview: () => void;
   onOpenMarkItDown: () => void;
   viewMode: ViewMode;
   onCycleViewMode: () => void;
@@ -40,6 +43,7 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
   onToggleOutline,
   showOutline,
   onOpenFind,
+  onOpenPrintPreview,
   onOpenMarkItDown,
   viewMode,
   onCycleViewMode,
@@ -47,12 +51,13 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
   aiBusy,
   onRunAiAssist,
 }) => {
+  const { t } = useI18n();
   const btnClass =
     'flex h-7 items-center gap-1 rounded px-2 text-xs font-medium whitespace-nowrap transition-colors hover:bg-black/5 dark:hover:bg-white/10';
 
   return (
     <div
-      aria-label="Barra di formattazione Markdown"
+      aria-label={t.formattingBarAria}
       className="no-print flex items-center gap-0.5 overflow-x-auto border-b px-2 py-1 select-none"
       style={{
         backgroundColor: 'var(--md-surface-alt)',
@@ -64,8 +69,8 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
         type="button"
         onClick={onToggleOutline}
         aria-pressed={showOutline}
-        aria-label="Mostra o nascondi struttura documento"
-        title="Struttura documento (Ctrl+Shift+O)"
+        aria-label={t.outlineAria}
+        title={t.outlineTooltip}
         className={btnClass}
         style={{
           backgroundColor: showOutline ? 'var(--md-accent-soft)' : undefined,
@@ -73,7 +78,7 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
         }}
       >
         <ListTree className="h-3.5 w-3.5" />
-        <span className="hidden md:inline">Struttura</span>
+        <span className="hidden md:inline">{t.outlineBtn}</span>
       </button>
 
       <span className="mx-1 h-4 w-px shrink-0" style={{ backgroundColor: 'var(--md-border)' }} />
@@ -81,8 +86,8 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
       <button
         type="button"
         onClick={() => onPrefixLine('# ')}
-        aria-label="Titolo 1"
-        title="Titolo 1 (#)"
+        aria-label={t.h1Label}
+        title={`${t.h1Label} (#)`}
         className={btnClass}
       >
         <Heading1 className="h-3.5 w-3.5" />
@@ -90,35 +95,35 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
       <button
         type="button"
         onClick={() => onPrefixLine('## ')}
-        aria-label="Titolo 2"
-        title="Titolo 2 (##)"
+        aria-label={t.h2Label}
+        title={`${t.h2Label} (##)`}
         className={btnClass}
       >
         <Heading2 className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
-        onClick={() => onWrap('**', '**', 'testo')}
-        aria-label="Grassetto"
-        title="Grassetto (**testo**)"
+        onClick={() => onWrap('**', '**', 'text')}
+        aria-label={t.boldLabel}
+        title={`${t.boldLabel} (**...**)`}
         className={btnClass}
       >
         <Bold className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
-        onClick={() => onWrap('*', '*', 'testo')}
-        aria-label="Corsivo"
-        title="Corsivo (*testo*)"
+        onClick={() => onWrap('*', '*', 'text')}
+        aria-label={t.italicLabel}
+        title={`${t.italicLabel} (*...*)`}
         className={btnClass}
       >
         <Italic className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
-        onClick={() => onWrap('~~', '~~', 'testo')}
-        aria-label="Barrato"
-        title="Testo barrato (~~testo~~)"
+        onClick={() => onWrap('~~', '~~', 'text')}
+        aria-label={t.strikeLabel}
+        title={`${t.strikeLabel} (~~...~~)`}
         className={btnClass}
       >
         <Strikethrough className="h-3.5 w-3.5" />
@@ -129,8 +134,8 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
       <button
         type="button"
         onClick={() => onPrefixLine('- ')}
-        aria-label="Elenco puntato"
-        title="Elenco puntato (- )"
+        aria-label={t.bulletListLabel}
+        title={`${t.bulletListLabel} (- )`}
         className={btnClass}
       >
         <List className="h-3.5 w-3.5" />
@@ -138,17 +143,17 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
       <button
         type="button"
         onClick={() => onPrefixLine('- [ ] ')}
-        aria-label="Inserisci checklist"
-        title="Checklist interattiva (- [ ])"
+        aria-label={t.checklistLabel}
+        title={`${t.checklistLabel} (- [ ])`}
         className={btnClass}
       >
         <CheckSquare className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
-        onClick={() => onWrap('```\n', '\n```', 'codice')}
-        aria-label="Blocco di codice"
-        title="Blocco di codice"
+        onClick={() => onWrap('```\n', '\n```', 'code')}
+        aria-label={t.codeBlockLabel}
+        title={t.codeBlockLabel}
         className={btnClass}
       >
         <Code className="h-3.5 w-3.5" />
@@ -156,18 +161,18 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
       <button
         type="button"
         onClick={onOpenTable}
-        aria-label="Inserisci tabella"
-        title="Inserisci tabella (Ctrl+T)"
+        aria-label={t.tableAria}
+        title={`${t.tableAria} (Ctrl+T)`}
         className={btnClass}
       >
         <Table className="h-3.5 w-3.5" />
-        <span className="hidden lg:inline">Tabella</span>
+        <span className="hidden lg:inline">{t.tableBtn}</span>
       </button>
       <button
         type="button"
         onClick={onClearFormatting}
-        aria-label="Cancella formattazione"
-        title="Cancella formattazione Markdown (Ctrl+Spazio)"
+        aria-label={t.clearFmtLabel}
+        title={`${t.clearFmtLabel} (Ctrl+Space)`}
         className={btnClass}
       >
         <Eraser className="h-3.5 w-3.5" />
@@ -178,23 +183,34 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
       <button
         type="button"
         onClick={onOpenFind}
-        aria-label="Trova e sostituisci"
-        title="Trova con caratteri jolly * e ? (Ctrl+F)"
+        aria-label={t.findAria}
+        title={`${t.findAria} (Ctrl+F)`}
         className={btnClass}
       >
         <Search className="h-3.5 w-3.5" />
-        <span className="hidden lg:inline">Trova</span>
+        <span className="hidden lg:inline">{t.findBtn}</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={onOpenPrintPreview}
+        aria-label={t.printPreviewTitle}
+        title={t.printPreviewTooltip}
+        className={btnClass}
+      >
+        <Printer className="h-3.5 w-3.5" />
+        <span className="hidden xl:inline">{t.printPreviewBtn}</span>
       </button>
 
       <button
         type="button"
         onClick={onOpenMarkItDown}
-        aria-label="Importa con MarkItDown"
-        title="Converti PDF, DOCX, XLSX, PPTX, HTML, EPUB, ZIP o URL in Markdown"
+        aria-label={t.importMarkItDownAria}
+        title={t.importMarkItDownAria}
         className={btnClass}
       >
         <FileInput className="h-3.5 w-3.5" />
-        <span>Importa MarkItDown</span>
+        <span>{t.importMarkItDownBtn}</span>
       </button>
 
       {/* Mobile view cycle button */}
@@ -202,10 +218,15 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
         type="button"
         onClick={onCycleViewMode}
         className={`${btnClass} sm:hidden`}
-        aria-label="Cambia modalità di vista"
+        aria-label={t.viewModeGroupAria}
       >
         <span>
-          Vista: {viewMode === 'source' ? 'Sorgente' : viewMode === 'split' ? 'Divisa' : 'Anteprima'}
+          {t.mobileViewPrefix}:{' '}
+          {viewMode === 'source'
+            ? t.modeSourceShort
+            : viewMode === 'split'
+              ? t.modeSplitShort
+              : t.modePreviewShort}
         </span>
       </button>
 
@@ -217,31 +238,31 @@ export const FormattingBar: React.FC<FormattingBarProps> = ({
               type="button"
               disabled={aiBusy}
               onClick={() => onRunAiAssist('write')}
-              title="Scrivi con AI (Ctrl+Q)"
+              title={`${t.aiWrite} (Ctrl+Q)`}
               className={btnClass}
               style={{ color: 'var(--md-accent)' }}
             >
-              Scrivi
+              {t.aiWrite}
             </button>
             <button
               type="button"
               disabled={aiBusy}
               onClick={() => onRunAiAssist('rewrite')}
-              title="Riscrivi selezione con AI (Ctrl+D)"
+              title={`${t.aiRewrite} (Ctrl+D)`}
               className={btnClass}
               style={{ color: 'var(--md-accent)' }}
             >
-              Riscrivi
+              {t.aiRewrite}
             </button>
             <button
               type="button"
               disabled={aiBusy}
               onClick={() => onRunAiAssist('summarize')}
-              title="Riassumi documento con AI (Ctrl+M)"
+              title={`${t.aiSummarize} (Ctrl+M)`}
               className={btnClass}
               style={{ color: 'var(--md-accent)' }}
             >
-              {aiBusy ? 'Elaborazione…' : 'Riassumi'}
+              {aiBusy ? t.aiWorking : t.aiSummarize}
             </button>
           </div>
         </>

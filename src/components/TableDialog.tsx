@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { useI18n } from '../lib/i18n/I18nContext';
 import { generateMarkdownTable } from '../lib/editor/markdownOps';
 
 interface TableDialogProps {
@@ -9,6 +10,7 @@ interface TableDialogProps {
 }
 
 export const TableDialog: React.FC<TableDialogProps> = ({ open, onClose, onInsert }) => {
+  const { t } = useI18n();
   const [rows, setRows] = useState(3);
   const [cols, setCols] = useState(3);
 
@@ -27,7 +29,7 @@ export const TableDialog: React.FC<TableDialogProps> = ({ open, onClose, onInser
       role="dialog"
       aria-modal="true"
       aria-labelledby="table-dialog-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onClick={onClose}
     >
       <div
@@ -44,12 +46,12 @@ export const TableDialog: React.FC<TableDialogProps> = ({ open, onClose, onInser
           style={{ borderColor: 'var(--md-border)' }}
         >
           <h2 id="table-dialog-title" className="text-sm font-semibold">
-            Inserisci Tabella Markdown
+            {t.tableDialogTitle}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Chiudi finestra tabella"
+            aria-label={t.closeLabel}
             className="rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10"
           >
             <X className="h-4 w-4" />
@@ -64,7 +66,7 @@ export const TableDialog: React.FC<TableDialogProps> = ({ open, onClose, onInser
                 className="mb-1 block text-xs font-medium"
                 style={{ color: 'var(--md-text-muted)' }}
               >
-                Righe di dati (1–20)
+                {t.tableRowsLabel}
               </label>
               <input
                 id="table-rows-input"
@@ -88,7 +90,7 @@ export const TableDialog: React.FC<TableDialogProps> = ({ open, onClose, onInser
                 className="mb-1 block text-xs font-medium"
                 style={{ color: 'var(--md-text-muted)' }}
               >
-                Colonne (1–12)
+                {t.tableColsLabel}
               </label>
               <input
                 id="table-cols-input"
@@ -109,7 +111,7 @@ export const TableDialog: React.FC<TableDialogProps> = ({ open, onClose, onInser
 
           <div>
             <p className="mb-1.5 text-xs" style={{ color: 'var(--md-text-muted)' }}>
-              Anteprima sintassi (usa il tasto Tab tra le celle per formattare automaticamente):
+              {t.tablePreviewHint}
             </p>
             <pre
               className="max-h-36 overflow-auto rounded border p-2.5 font-mono text-xs leading-relaxed"
@@ -130,14 +132,14 @@ export const TableDialog: React.FC<TableDialogProps> = ({ open, onClose, onInser
               className="rounded border px-3.5 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/10"
               style={{ borderColor: 'var(--md-border)', color: 'var(--md-text)' }}
             >
-              Annulla
+              {t.cancelLabel}
             </button>
             <button
               type="submit"
               className="rounded px-4 py-1.5 text-xs font-medium transition-colors"
               style={{ backgroundColor: 'var(--md-accent)', color: 'var(--md-accent-fg)' }}
             >
-              Inserisci Tabella
+              {t.tableInsertBtn}
             </button>
           </div>
         </form>

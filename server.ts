@@ -1,5 +1,7 @@
+import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -14,11 +16,24 @@ import {
 } from './src/lib/markitdown/postit.ts';
 import type { ConversionResponse, FolderFileSummary } from './src/lib/markitdown/types.ts';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const SAMPLES_DIR = path.join(__dirname, 'public', 'samples');
+function detectStandaloneSea(): boolean {
+  if (process.env.MDPAD_STANDALONE === '1') return true;
+  try {
+    const req = createRequire(process.execPath);
+    const sea = req('node:sea') as { isSea?: () => boolean };
+    return Boolean(sea?.isSea?.());
+  } catch {
+    return false;
+  }
+}
+
+const IS_STANDALONE_EXE = detectStandaloneSea();
+const RUNTIME_DIR = IS_STANDALONE_EXE
+  ? path.dirname(process.execPath)
+  : process.env.MDPAD_RUNTIME_DIR || path.dirname(fileURLToPath(import.meta.url));
+const SAMPLES_DIR = path.join(RUNTIME_DIR, 'public', 'samples');
 const PORT = Number(process.env.PORT || 3000);
-const HOST = '0.0.0.0';
+const HOST = IS_STANDALONE_EXE ? '127.0.0.1' : '0.0.0.0';
 
 const app = express();
 app.use(express.json({ limit: '15mb' }));
@@ -554,12 +569,12 @@ app.post('/api/mcp', async (req, res) => {
   });
 });
 
-// Frontend serving (Vite dev middleware in development, static dist/ in production)
+// Frontend serving (Vite dev middleware in development, static dist/ in production or standalone .exe)
 async function startServer(): Promise<void> {
-  const isProd = process.env.NODE_ENV === 'production';
+  const isProd = process.env.NODE_ENV === 'production' || IS_STANDALONE_EXE;
 
   if (isProd) {
-    const distDir = path.join(__dirname, 'dist');
+    const distDir = path.join(RUNTIME_DIR, 'dist');
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
@@ -574,7 +589,17 @@ async function startServer(): Promise<void> {
   }
 
   app.listen(PORT, HOST, () => {
+    const url = `http://localhost:${PORT}`;
     console.log(`MDPad + MarkItDown server attivo su http://${HOST}:${PORT}`);
+    if (IS_STANDALONE_EXE && process.env.MDPAD_NO_BROWSER !== '1') {
+      if (process.platform === 'win32') {
+        execFile('cmd', ['/c', 'start', '', url], () => {});
+      } else if (process.platform === 'darwin') {
+        execFile('open', [url], () => {});
+      } else {
+        execFile('xdg-open', [url], () => {});
+      }
+    }
   });
 }
 

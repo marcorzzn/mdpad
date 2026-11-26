@@ -1,7 +1,9 @@
 import React from 'react';
-import { Download, X } from 'lucide-react';
+import { Download, Globe, X } from 'lucide-react';
+import { useI18n } from '../lib/i18n/I18nContext';
+import { SUPPORTED_LOCALES } from '../lib/i18n/translations';
 import { buildPythonCliScript, buildWindowsRegScript } from '../lib/markitdown/postit';
-import type { AppTheme } from '../lib/markitdown/types';
+import type { AppTheme, LanguagePreference } from '../lib/markitdown/types';
 
 interface CrossPlatformModalProps {
   open: boolean;
@@ -12,6 +14,7 @@ interface CrossPlatformModalProps {
   onToggleSessionRestore: () => void;
   aiEnabled: boolean;
   onToggleAiEnabled: () => void;
+  lastAutoSavedAt: string | null;
 }
 
 function downloadText(filename: string, content: string) {
@@ -35,7 +38,9 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
   onToggleSessionRestore,
   aiEnabled,
   onToggleAiEnabled,
+  lastAutoSavedAt,
 }) => {
+  const { t, locale, languagePref, setLanguagePref } = useI18n();
   if (!open) return null;
 
   return (
@@ -43,7 +48,7 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="crossplatform-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 sm:p-6"
+      className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-3 sm:p-6"
       onClick={onClose}
     >
       <div
@@ -61,17 +66,16 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
         >
           <div>
             <h2 id="crossplatform-title" className="text-base font-semibold">
-              Compatibilità Windows 7–11, iPadOS, Android, Linux & Preferenze
+              {t.prefsTitle}
             </h2>
             <p className="text-xs" style={{ color: 'var(--md-text-muted)' }}>
-              Strumenti di integrazione nativa per Esplora File, script MarkItDown offline e
-              scorciatoie stile Blocco Note.
+              {t.prefsSubtitle}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Chiudi finestra compatibilità e preferenze"
+            aria-label={t.closeLabel}
             className="rounded p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
           >
             <X className="h-4 w-4" />
@@ -81,28 +85,34 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
         <div className="flex-1 space-y-6 overflow-y-auto p-5">
           {/* Preferences */}
           <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--md-text-muted)' }}>
-              Impostazioni MDPad (tutto locale, zero telemetria)
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--md-text-muted)' }}
+            >
+              {t.prefsSectionTitle}
             </h3>
-            <div className="grid gap-3 sm:grid-cols-3">
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              {/* Theme selector */}
               <div
                 className="rounded-md border p-3"
                 style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-surface-alt)' }}
               >
-                <p className="mb-2 text-xs font-medium">Tema interfaccia</p>
+                <p className="mb-2 text-xs font-medium">{t.prefsThemeLabel}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {(
                     [
-                      { id: 'light', label: 'Chiaro' },
-                      { id: 'dark', label: 'Scuro' },
-                      { id: 'high-contrast', label: 'Contrasto Elevato' },
+                      { id: 'system', label: t.viewThemeSystem },
+                      { id: 'light', label: t.viewThemeLight },
+                      { id: 'dark', label: t.viewThemeDark },
+                      { id: 'high-contrast', label: t.viewThemeHighContrast },
                     ] as const
                   ).map((opt) => (
                     <button
                       key={opt.id}
                       type="button"
                       onClick={() => onChangeTheme(opt.id)}
-                      className="rounded border px-2.5 py-1 text-xs font-medium"
+                      className="rounded border px-2.5 py-1 text-xs font-medium transition-colors"
                       style={{
                         borderColor: theme === opt.id ? 'var(--md-accent)' : 'var(--md-border)',
                         backgroundColor:
@@ -116,6 +126,60 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
                 </div>
               </div>
 
+              {/* Language selector */}
+              <div
+                className="rounded-md border p-3"
+                style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-surface-alt)' }}
+              >
+                <label
+                  htmlFor="prefs-language-select"
+                  className="mb-2 flex items-center gap-1.5 text-xs font-medium"
+                >
+                  <Globe className="h-3.5 w-3.5" style={{ color: 'var(--md-accent)' }} />
+                  <span>{t.prefsLanguageLabel}</span>
+                </label>
+                <select
+                  id="prefs-language-select"
+                  value={languagePref}
+                  onChange={(e) => setLanguagePref(e.target.value as LanguagePreference)}
+                  className="w-full cursor-pointer rounded border px-2.5 py-1.5 text-xs outline-none"
+                  style={{
+                    backgroundColor: 'var(--md-surface)',
+                    borderColor: 'var(--md-border)',
+                    color: 'var(--md-text)',
+                  }}
+                >
+                  <option value="system">
+                    {t.prefsLanguageSystemOption} ({locale.toUpperCase()})
+                  </option>
+                  {SUPPORTED_LOCALES.map((lang) => (
+                    <option key={lang.code} value={lang.code}>
+                      {lang.nativeName} ({lang.code.toUpperCase()})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div
+                className="rounded-md border p-3"
+                style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-surface-alt)' }}
+              >
+                <span className="block text-xs font-medium">{t.prefsAutoSaveTitle}</span>
+                <span className="mt-0.5 block text-[11px]" style={{ color: 'var(--md-text-muted)' }}>
+                  {t.prefsAutoSaveDesc}
+                </span>
+                {lastAutoSavedAt && (
+                  <span
+                    className="mt-1.5 block font-mono text-[11px]"
+                    style={{ color: 'var(--md-accent)' }}
+                  >
+                    {t.autoSaveLabel}: {new Date(lastAutoSavedAt).toLocaleTimeString(locale)}
+                  </span>
+                )}
+              </div>
+
               <label
                 className="flex cursor-pointer items-start gap-2.5 rounded-md border p-3"
                 style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-surface-alt)' }}
@@ -124,12 +188,12 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
                   type="checkbox"
                   checked={sessionRestore}
                   onChange={onToggleSessionRestore}
-                  className="mt-0.5 h-4 w-4"
+                  className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <div>
-                  <span className="block text-xs font-medium">Ripristino automatico sessione</span>
+                  <span className="block text-xs font-medium">{t.prefsSessionRestoreTitle}</span>
                   <span className="text-[11px]" style={{ color: 'var(--md-text-muted)' }}>
-                    Salva le schede aperte localmente nel browser per riaprirle al prossimo avvio.
+                    {t.prefsSessionRestoreDesc}
                   </span>
                 </div>
               </label>
@@ -142,13 +206,12 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
                   type="checkbox"
                   checked={aiEnabled}
                   onChange={onToggleAiEnabled}
-                  className="mt-0.5 h-4 w-4"
+                  className="mt-0.5 h-4 w-4 accent-blue-600"
                 />
                 <div>
-                  <span className="block text-xs font-medium">Assistente AI opzionale</span>
+                  <span className="block text-xs font-medium">{t.prefsAiTitle}</span>
                   <span className="text-[11px]" style={{ color: 'var(--md-text-muted)' }}>
-                    Disattivato di default. Abilita Scrivi (Ctrl+Q), Riscrivi (Ctrl+D) e Riassumi
-                    (Ctrl+M).
+                    {t.prefsAiDesc}
                   </span>
                 </div>
               </label>
@@ -157,8 +220,11 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
 
           {/* Cross-platform compatibility matrix */}
           <section className="space-y-2.5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--md-text-muted)' }}>
-              Compatibilità universale delle note e dei Post-it cartella
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--md-text-muted)' }}
+            >
+              {t.prefsMatrixTitle}
             </h3>
             <div
               className="overflow-x-auto rounded-md border"
@@ -173,9 +239,9 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
                       borderColor: 'var(--md-border)',
                     }}
                   >
-                    <th className="px-3 py-2 font-semibold">Sistema</th>
-                    <th className="px-3 py-2 font-semibold">File utilizzati</th>
-                    <th className="px-3 py-2 font-semibold">Comportamento</th>
+                    <th className="px-3 py-2 font-semibold">OS</th>
+                    <th className="px-3 py-2 font-semibold">Files</th>
+                    <th className="px-3 py-2 font-semibold">Behavior</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -183,22 +249,22 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
                     [
                       'Windows 7 Starter (32-bit) / 8 / 10 / 11',
                       '_POST-IT.md + desktop.ini + .bat',
-                      'Tooltip nativo al passaggio del mouse in Esplora File + testo CRLF/UTF-8 leggibile anche dal Blocco Note Win7.',
+                      'Native Explorer hover InfoTip + CRLF/UTF-8 text readable in Win7 Notepad.',
                     ],
                     [
-                      'iPadOS / iOS (App File, iCloud, Obsidian)',
-                      '_POST-IT.md (UTF-8 / LF o CRLF)',
-                      'Il prefisso underscore (_) fissa sempre la nota in cima alla cartella; Markdown standard senza formati proprietari.',
+                      'iPadOS / iOS (Files, iCloud, Obsidian)',
+                      '_POST-IT.md (UTF-8)',
+                      'Underscore prefix (_) pins the Post-it to the top of any folder.',
                     ],
                     [
-                      'Android (Gestore file, Markor, Obsidian)',
+                      'Android (Files, Markor, Obsidian)',
                       '_POST-IT.md',
-                      'Leggibile e modificabile offline su qualsiasi versione Android anche datata come file di testo puro.',
+                      'Offline plain-text Markdown readable on any Android version.',
                     ],
                     [
                       'Linux & macOS (Dolphin, Nautilus, Finder)',
                       '_POST-IT.md + .directory',
-                      'Commento cartella nativo su KDE/Linux + anteprima rapida (Quick Look / Sushi) sul file Markdown.',
+                      'Native KDE/Linux folder comment + Quick Look / Sushi preview.',
                     ],
                   ].map(([os, files, desc]) => (
                     <tr
@@ -218,11 +284,17 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
             </div>
           </section>
 
-          {/* Downloadable Windows 7-11 & Python CLI Kit */}
+          {/* Downloadable Windows 7-11 & Python CLI Kit + GitHub Actions */}
           <section className="space-y-2.5">
-            <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--md-text-muted)' }}>
-              Kit di integrazione Windows & CLI MarkItDown
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--md-text-muted)' }}
+            >
+              {t.prefsKitTitle}
             </h3>
+            <p className="text-xs" style={{ color: 'var(--md-text-muted)' }}>
+              {t.prefsGhActionsNote}
+            </p>
             <div className="flex flex-wrap gap-2.5">
               <button
                 type="button"
@@ -233,7 +305,7 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
                 style={{ borderColor: 'var(--md-border)', color: 'var(--md-text)' }}
               >
                 <Download className="h-3.5 w-3.5" />
-                <span>Scarica Menu Contestuale Windows (.reg Win7–11)</span>
+                <span>Windows Context Menu (.reg Win7–11)</span>
               </button>
 
               <button
@@ -243,35 +315,40 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
                 style={{ borderColor: 'var(--md-border)', color: 'var(--md-text)' }}
               >
                 <Download className="h-3.5 w-3.5" />
-                <span>Scarica Script CLI MarkItDown (mdpad_postit.py)</span>
+                <span>MarkItDown CLI (mdpad_postit.py)</span>
               </button>
             </div>
           </section>
 
           {/* Keyboard shortcuts */}
           <section className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--md-text-muted)' }}>
-              Scorciatoie da tastiera (stile Blocco Note)
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--md-text-muted)' }}
+            >
+              {t.prefsShortcutsTitle}
             </h3>
             <div className="grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
               {[
-                ['F6 / Ctrl+E', 'Cambia vista (Sorgente / Divisa / Anteprima)'],
-                ['Ctrl+T', 'Inserisci tabella Markdown'],
-                ['Tab (in tabella)', 'Allinea colonne e passa alla cella successiva'],
-                ['Ctrl+Shift+O', 'Mostra / nascondi Struttura Documento'],
-                ['Ctrl+Spazio', 'Cancella formattazione Markdown'],
-                ['Ctrl+F / Ctrl+H', 'Trova e Sostituisci con wildcard (* e ?)'],
-                ['Ctrl+N / Ctrl+S', 'Nuova scheda / Salva file .md'],
-                ['Ctrl + Rotellina', 'Zoom istantaneo editor e anteprima'],
-                ['F5', 'Inserisci data e ora corrente'],
-                ['Ctrl+V (su selezione)', 'Incolla URL come link [testo](url) o immagine'],
+                ['F6 / Ctrl+E', `${t.modeSourceShort} / ${t.modeSplitShort} / ${t.modePreviewShort}`],
+                ['Ctrl+Shift+P', t.printPreviewTitle],
+                ['Ctrl+T', t.editInsertTable],
+                ['Tab', t.tablePreviewHint.split('(')[0].trim()],
+                ['Ctrl+Shift+O', t.viewOutline],
+                ['Ctrl+Space', t.editClearFormatting],
+                ['Ctrl+F / Ctrl+H', t.findRegionAria],
+                ['Ctrl+N / Ctrl+S', `${t.fileNewTab} / ${t.fileSaveMd}`],
+                ['Ctrl + Wheel', 'Zoom 70%–200%'],
+                ['F5', t.editInsertDateTime],
               ].map(([key, label]) => (
                 <div
                   key={key}
                   className="flex items-center justify-between gap-2 rounded border px-2.5 py-1.5"
                   style={{ borderColor: 'var(--md-border)' }}
                 >
-                  <span style={{ color: 'var(--md-text-muted)' }}>{label}</span>
+                  <span className="truncate" style={{ color: 'var(--md-text-muted)' }}>
+                    {label}
+                  </span>
                   <kbd
                     className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px]"
                     style={{ backgroundColor: 'var(--md-code-bg)' }}

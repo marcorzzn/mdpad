@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
+    "build:portable": "npm run build && node scripts/build-portable.mjs",
     "start": "node server.ts",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/lib/markitdown/engine.test.ts"
+    "test": "tsx --test src/lib/markitdown/engine.test.ts src/lib/editor/markdownOps.test.ts src/lib/editor/autosave.test.ts src/lib/i18n/translations.test.ts"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",

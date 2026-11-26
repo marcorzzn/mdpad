@@ -1,6 +1,7 @@
 import React from 'react';
 import { Plus, X } from 'lucide-react';
 import type { EditorTab } from '../data/seedTabs';
+import { useI18n } from '../lib/i18n/I18nContext';
 
 interface TabStripProps {
   tabs: EditorTab[];
@@ -17,6 +18,8 @@ export const TabStrip: React.FC<TabStripProps> = ({
   onCloseTab,
   onNewTab,
 }) => {
+  const { t } = useI18n();
+
   return (
     <div
       className="no-print flex items-end gap-1 overflow-x-auto border-b px-2 pt-1.5 select-none"
@@ -25,7 +28,7 @@ export const TabStrip: React.FC<TabStripProps> = ({
         borderColor: 'var(--md-border)',
       }}
       role="tablist"
-      aria-label="Schede documenti aperti"
+      aria-label={t.tabsAriaLabel}
     >
       <div className="mr-2 flex shrink-0 items-center pb-1.5 pl-1">
         <span
@@ -65,8 +68,8 @@ export const TabStrip: React.FC<TabStripProps> = ({
               <span className="truncate">{tab.title}</span>
               {isDirty && (
                 <span
-                  aria-label="Modificato"
-                  title="Modifiche non salvate"
+                  aria-label={t.tabModified}
+                  title={t.tabUnsavedChanges}
                   className="shrink-0 font-mono text-xs font-bold"
                   style={{ color: 'var(--md-accent)' }}
                 >
@@ -81,7 +84,7 @@ export const TabStrip: React.FC<TabStripProps> = ({
                 e.stopPropagation();
                 onCloseTab(tab.id);
               }}
-              aria-label={`Chiudi scheda ${tab.title}`}
+              aria-label={`${t.closeTabLabel} ${tab.title}`}
               className="mr-1 rounded p-1 opacity-70 transition-opacity hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
               style={{ color: 'var(--md-text-muted)' }}
             >
@@ -94,8 +97,8 @@ export const TabStrip: React.FC<TabStripProps> = ({
       <button
         type="button"
         onClick={onNewTab}
-        aria-label="Nuova scheda"
-        title="Nuova scheda (Ctrl+N)"
+        aria-label={t.newTabLabel}
+        title={t.newTabTitle}
         className="mb-1 ml-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-black/10 dark:hover:bg-white/10"
         style={{ color: 'var(--md-text-muted)' }}
       >

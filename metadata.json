@@ -1,0 +1,6 @@
+{
+  "name": "MarkItDown Studio",
+  "description": "MDPad: Blocco Note leggero in stile Windows con supporto nativo Markdown, conversione completa MarkItDown e generatore di Post-it per cartelle compatibile con Windows 7-11, iPadOS, Android e Linux.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

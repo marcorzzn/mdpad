@@ -109,7 +109,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           id="status-encoding-select"
           value={encoding}
           onChange={(e) => onChangeEncoding(e.target.value as FileEncoding)}
-          className="cursor-pointer rounded bg-transparent px-1 py-0.5 text-xs outline-none hover:bg-black/5 dark:hover:bg-white/10"
+          className="cursor-pointer rounded bg-transparent py-0.5 pr-2 pl-1 text-xs outline-none hover:bg-black/5 dark:hover:bg-white/10"
           style={{ color: 'var(--md-text-muted)' }}
         >
           {ENCODING_OPTIONS.map((opt) => (

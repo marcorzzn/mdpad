@@ -1,26 +1,46 @@
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+
+const TaskLineContext = createContext<number>(0);
 
 interface MarkdownPreviewProps {
   markdown: string;
   zoom: number;
   assets: Record<string, string>;
-  onToggleCheckbox: (checkboxIndex: number) => void;
+  onToggleCheckboxLine: (lineNumber: number) => void;
   scrollRef?: React.RefObject<HTMLDivElement | null>;
   onScroll?: () => void;
 }
+
+const TaskCheckbox: React.FC<{
+  checked: boolean;
+  directLine: number;
+  onToggle: (lineNumber: number) => void;
+}> = ({ checked, directLine, onToggle }) => {
+  const parentLine = useContext(TaskLineContext);
+  const lineNum = directLine > 0 ? directLine : parentLine;
+  return (
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={() => {
+        if (lineNum > 0) onToggle(lineNum);
+      }}
+      aria-label={lineNum > 0 ? `Attività riga ${lineNum}` : 'Attività'}
+      className="h-4 w-4 cursor-pointer accent-blue-600"
+    />
+  );
+};
 
 export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
   markdown,
   zoom,
   assets,
-  onToggleCheckbox,
+  onToggleCheckboxLine,
   scrollRef,
   onScroll,
 }) => {
-  let checkboxCounter = 0;
-
   return (
     <div
       ref={scrollRef}
@@ -36,16 +56,25 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
+            li(props) {
+              const { node, children, ...rest } = props;
+              const lineNum = node?.position?.start?.line ?? 0;
+              return (
+                <li {...rest}>
+                  <TaskLineContext.Provider value={lineNum}>
+                    {children}
+                  </TaskLineContext.Provider>
+                </li>
+              );
+            },
             input(props) {
               if (props.type === 'checkbox') {
-                const idx = checkboxCounter++;
+                const directLine = props.node?.position?.start?.line ?? 0;
                 return (
-                  <input
-                    type="checkbox"
+                  <TaskCheckbox
                     checked={Boolean(props.checked)}
-                    onChange={() => onToggleCheckbox(idx)}
-                    aria-label={`Attività ${idx + 1}`}
-                    className="mt-1 h-4 w-4 shrink-0 cursor-pointer accent-blue-600"
+                    directLine={directLine}
+                    onToggle={onToggleCheckboxLine}
                   />
                 );
               }

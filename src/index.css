@@ -144,14 +144,20 @@
 
 .md-preview ul.contains-task-list {
   list-style-type: none;
-  padding-left: 0.25em;
+  padding-left: 0;
 }
 
 .md-preview li.task-list-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5em;
-  margin-bottom: 0.35em;
+  position: relative;
+  padding-left: 1.65em;
+  margin-bottom: 0.4em;
+}
+
+.md-preview li.task-list-item > input[type="checkbox"] {
+  position: absolute;
+  left: 0;
+  top: 0.28em;
+  margin: 0;
 }
 
 .md-preview ol {

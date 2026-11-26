@@ -1,17 +1,17 @@
-import React, { useEffect, useState } from 'react';
-import { FileInput, Globe, Terminal, Upload, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { FileUp, Globe, Play, X } from 'lucide-react';
 import type { ConversionResponse, ConverterMetadata } from '../lib/markitdown/types';
-
-interface MarkItDownModalProps {
-  open: boolean;
-  onClose: () => void;
-  onOpenConverted: (title: string, markdown: string, sourceLabel: string) => void;
-}
 
 interface SampleItem {
   filename: string;
   extension: string;
   sizeBytes: number;
+}
+
+interface MarkItDownModalProps {
+  open: boolean;
+  onClose: () => void;
+  onOpenConverted: (conv: ConversionResponse) => void;
 }
 
 type ModalTab = 'import' | 'samples' | 'pipeline';
@@ -27,6 +27,7 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
   onClose,
   onOpenConverted,
 }) => {
+  const fileRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<ModalTab>('import');
   const [uriInput, setUriInput] = useState('');
   const [keepDataUris, setKeepDataUris] = useState(false);
@@ -35,54 +36,42 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
 
   const [samples, setSamples] = useState<SampleItem[]>([]);
   const [converters, setConverters] = useState<ConverterMetadata[]>([]);
+  const [converterFilter, setConverterFilter] = useState('');
+
   const [mcpUri, setMcpUri] = useState(
-    'data:text/html;base64,PGgxPk1hcmtJdERvd24gTUNQPC9oMT48cD5Db252ZXJzaW9uZSB0cmFtaXRlIEpTT04tUlBDIDIuMC48L3A+'
+    'data:text/html;charset=utf-8,%3Ch1%3EMarkItDown%20MCP%3C%2Fh1%3E%3Cp%3ETest%20conversione%20via%20JSON-RPC%202.0.%3C%2Fp%3E'
   );
-  const [mcpOutput, setMcpOutput] = useState<string | null>(null);
+  const [mcpResponse, setMcpResponse] = useState<string>('');
 
   useEffect(() => {
     if (!open) return;
-    fetch('/api/samples')
+    void fetch('/api/samples')
       .then((r) => r.json())
-      .then((d) => {
-        if (Array.isArray(d.samples)) setSamples(d.samples);
-      })
+      .then((d) => setSamples(Array.isArray(d.samples) ? d.samples : []))
       .catch(() => {});
-
-    fetch('/api/converters')
+    void fetch('/api/converters')
       .then((r) => r.json())
-      .then((d) => {
-        if (Array.isArray(d.converters)) setConverters(d.converters);
-      })
+      .then((d) => setConverters(Array.isArray(d.converters) ? d.converters : []))
       .catch(() => {});
   }, [open]);
 
   if (!open) return null;
 
-  const openResult = (data: ConversionResponse) => {
-    const baseName = data.sourceName.replace(/\.[^.]+$/, '') || 'documento';
-    onOpenConverted(
-      `${baseName}.md`,
-      data.markdown,
-      `${data.converterUsed} · ~${data.stats.estimatedTokens} token · ${data.stats.durationMs} ms`
-    );
-    onClose();
-  };
-
-  const handleFileUpload = async (file: File | undefined) => {
+  const handleUploadFile = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('keepDataUris', String(keepDataUris));
-      const res = await fetch('/api/convert/file', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Conversione file fallita.');
-      openResult(data as ConversionResponse);
+      const form = new FormData();
+      form.append('file', file);
+      form.append('keepDataUris', String(keepDataUris));
+      const resp = await fetch('/api/convert/file', { method: 'POST', body: form });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Conversione file fallita.');
+      onOpenConverted(data as ConversionResponse);
+      onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore conversione.');
+      setError(err instanceof Error ? err.message : 'Errore conversione file.');
     } finally {
       setBusy(false);
     }
@@ -90,18 +79,22 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
 
   const handleConvertUri = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uriInput.trim()) return;
+    if (!uriInput.trim()) {
+      setError('Inserisci un URL http(s):// o un Data URI.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/convert/uri', {
+      const resp = await fetch('/api/convert/uri', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ uri: uriInput.trim(), keepDataUris }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Conversione URI fallita.');
-      openResult(data as ConversionResponse);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Conversione URI fallita.');
+      onOpenConverted(data as ConversionResponse);
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore conversione URI.');
     } finally {
@@ -113,14 +106,15 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/convert/sample/${encodeURIComponent(filename)}`, {
+      const resp = await fetch(`/api/convert/sample/${encodeURIComponent(filename)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keepDataUris }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Conversione campione fallita.');
-      openResult(data as ConversionResponse);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || 'Errore conversione campione.');
+      onOpenConverted(data as ConversionResponse);
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore conversione campione.');
     } finally {
@@ -128,12 +122,11 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
     }
   };
 
-  const handleRunMcp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleRunMcp = async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch('/api/mcp', {
+      const resp = await fetch('/api/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -142,18 +135,28 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
           method: 'tools/call',
           params: {
             name: 'convert_to_markdown',
-            arguments: { uri: mcpUri.trim() },
+            arguments: { uri: mcpUri },
           },
         }),
       });
-      const json = await res.json();
-      setMcpOutput(JSON.stringify(json, null, 2));
+      const data = await resp.json();
+      setMcpResponse(JSON.stringify(data, null, 2));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore chiamata MCP.');
+      setError(err instanceof Error ? err.message : 'Errore richiesta MCP.');
     } finally {
       setBusy(false);
     }
   };
+
+  const filteredConverters = converters.filter((c) => {
+    const q = converterFilter.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.description.toLowerCase().includes(q) ||
+      c.extensions.some((e) => e.toLowerCase().includes(q))
+    );
+  });
 
   return (
     <div
@@ -164,7 +167,7 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border shadow-2xl"
         style={{
           backgroundColor: 'var(--md-surface)',
           borderColor: 'var(--md-border)',
@@ -174,73 +177,68 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
       >
         <div
           className="flex items-center justify-between border-b px-5 py-3.5"
-          style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-chrome)' }}
+          style={{ borderColor: 'var(--md-border)' }}
         >
           <div>
             <h2 id="markitdown-modal-title" className="text-base font-semibold">
               Importa e Converti con Microsoft MarkItDown
             </h2>
             <p className="text-xs" style={{ color: 'var(--md-text-muted)' }}>
-              Trasforma documenti Office, PDF, HTML, EPUB, RSS, ZIP o indirizzi web direttamente in una scheda MDPad
+              Trasforma documenti Office, PDF, pagine HTML, RSS, EPUB, Notebook e archivi ZIP in
+              schede Markdown modificabili in MDPad.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Chiudi finestra MarkItDown"
-            className="rounded p-1.5 hover:bg-black/10 dark:hover:bg-white/10"
+            className="rounded p-1.5 hover:bg-black/5 dark:hover:bg-white/10"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Sub-tabs */}
+        {/* Modal tabs */}
         <div
-          role="tablist"
-          aria-label="Sezioni MarkItDown"
           className="flex items-center gap-1 border-b px-5 py-2"
-          style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-surface-alt)' }}
+          style={{
+            backgroundColor: 'var(--md-surface-alt)',
+            borderColor: 'var(--md-border)',
+          }}
+          role="tablist"
         >
           {(
             [
-              { id: 'import', label: 'File e URL' },
+              { id: 'import', label: 'Importa File o URL' },
               { id: 'samples', label: `Campioni Reali (${samples.length})` },
-              { id: 'pipeline', label: `Convertitori & MCP (${converters.length})` },
+              { id: 'pipeline', label: `Convertitori (${converters.length}) & MCP` },
             ] as const
-          ).map((item) => {
-            const active = tab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => {
-                  setError(null);
-                  setTab(item.id);
-                }}
-                className="rounded px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors"
-                style={{
-                  backgroundColor: active ? 'var(--md-surface)' : 'transparent',
-                  color: active ? 'var(--md-text)' : 'var(--md-text-muted)',
-                  border: active ? '1px solid var(--md-border)' : '1px solid transparent',
-                }}
-              >
-                {item.label}
-              </button>
-            );
-          })}
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className="rounded-md px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors"
+              style={{
+                backgroundColor: tab === t.id ? 'var(--md-accent)' : 'transparent',
+                color: tab === t.id ? 'var(--md-accent-fg)' : 'var(--md-text-muted)',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        <div className="flex-1 space-y-4 overflow-y-auto p-5">
           {error && (
             <div
               role="alert"
-              className="rounded border px-3.5 py-2.5 text-xs"
+              className="rounded-md border px-3.5 py-2.5 text-xs"
               style={{
                 borderColor: '#dc2626',
                 backgroundColor: 'rgba(220, 38, 38, 0.08)',
-                color: '#dc2626',
               }}
             >
               {error}
@@ -249,64 +247,53 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
 
           {tab === 'import' && (
             <div className="space-y-5">
-              {/* File upload dropzone */}
               <div
-                className="rounded-md border border-dashed p-6 text-center"
+                className="flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-8 text-center"
                 style={{
                   borderColor: 'var(--md-border-strong)',
                   backgroundColor: 'var(--md-surface-alt)',
                 }}
               >
-                <Upload className="mx-auto mb-2 h-6 w-6 opacity-70" />
-                <p className="text-sm font-medium">Carica un documento da convertire in Markdown</p>
-                <p className="mt-1 text-xs" style={{ color: 'var(--md-text-muted)' }}>
-                  Supporta PDF, DOCX, XLSX, XLS, PPTX, HTML, CSV, EPUB, RSS/Atom, IPYNB, ZIP, JSON e immagini EXIF
+                <FileUp className="mb-2 h-6 w-6" style={{ color: 'var(--md-accent)' }} />
+                <p className="text-sm font-medium">
+                  Carica qualsiasi documento da convertire in Markdown
                 </p>
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-4">
-                  <label
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded px-4 py-2 text-xs font-medium"
-                    style={{ backgroundColor: 'var(--md-accent)', color: 'var(--md-accent-fg)' }}
-                  >
-                    <FileInput className="h-3.5 w-3.5" />
-                    <span>{busy ? 'Conversione in corso…' : 'Scegli file dal dispositivo'}</span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      disabled={busy}
-                      onChange={(e) => handleFileUpload(e.target.files?.[0])}
-                    />
-                  </label>
-
-                  <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--md-text-muted)' }}>
-                    <input
-                      type="checkbox"
-                      checked={keepDataUris}
-                      onChange={(e) => setKeepDataUris(e.target.checked)}
-                      className="h-3.5 w-3.5"
-                    />
-                    <span>Mantieni data URI base64 (flag --keep-data-uris)</span>
-                  </label>
-                </div>
+                <p className="mt-1 text-xs" style={{ color: 'var(--md-text-muted)' }}>
+                  PDF · DOCX · XLSX / XLS · PPTX · HTML · CSV · IPYNB · RSS / Atom · EPUB · ZIP ·
+                  Immagini EXIF · JSON / TXT
+                </p>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleUploadFile(e.target.files?.[0]);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => fileRef.current?.click()}
+                  className="mt-4 rounded-md px-4 py-2 text-xs font-medium disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--md-accent)', color: 'var(--md-accent-fg)' }}
+                >
+                  {busy ? 'Conversione in corso…' : 'Seleziona File dal Dispositivo'}
+                </button>
               </div>
 
-              {/* URL / Data URI form */}
-              <form onSubmit={handleConvertUri} className="space-y-2">
-                <label
-                  htmlFor="markitdown-uri-input"
-                  className="flex items-center gap-1.5 text-xs font-medium"
-                  style={{ color: 'var(--md-text-muted)' }}
-                >
-                  <Globe className="h-3.5 w-3.5" />
-                  <span>Oppure converti un indirizzo HTTP/HTTPS o un Data URI</span>
+              <form onSubmit={handleConvertUri} className="space-y-2.5">
+                <label htmlFor="markitdown-uri-input" className="block text-xs font-semibold">
+                  Oppure converti un URL (http/https) o un Data URI
                 </label>
-                <div className="flex gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <input
                     id="markitdown-uri-input"
                     type="text"
                     value={uriInput}
                     onChange={(e) => setUriInput(e.target.value)}
-                    placeholder="https://example.com oppure data:text/html;base64,..."
-                    className="min-w-0 flex-1 rounded border px-3 py-2 font-mono text-xs"
+                    placeholder="https://example.com/articolo  oppure  data:text/html;base64,..."
+                    className="flex-1 rounded-md border px-3 py-2 font-mono text-xs"
                     style={{
                       backgroundColor: 'var(--md-surface-alt)',
                       borderColor: 'var(--md-border)',
@@ -315,13 +302,24 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
                   />
                   <button
                     type="submit"
-                    disabled={busy || !uriInput.trim()}
-                    className="rounded border px-4 py-2 text-xs font-medium whitespace-nowrap disabled:opacity-50"
-                    style={{ borderColor: 'var(--md-border-strong)', color: 'var(--md-text)' }}
+                    disabled={busy}
+                    className="flex items-center justify-center gap-1.5 rounded-md border px-4 py-2 text-xs font-medium whitespace-nowrap hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
+                    style={{ borderColor: 'var(--md-border)', color: 'var(--md-text)' }}
                   >
-                    Converti URI
+                    <Globe className="h-3.5 w-3.5" />
+                    <span>Converti URI</span>
                   </button>
                 </div>
+
+                <label className="flex items-center gap-2 pt-1 text-xs" style={{ color: 'var(--md-text-muted)' }}>
+                  <input
+                    type="checkbox"
+                    checked={keepDataUris}
+                    onChange={(e) => setKeepDataUris(e.target.checked)}
+                    className="h-3.5 w-3.5"
+                  />
+                  <span>Mantieni i Data URI completi nell’output (--keep-data-uris)</span>
+                </label>
               </form>
             </div>
           )}
@@ -329,39 +327,46 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
           {tab === 'samples' && (
             <div className="space-y-3">
               <p className="text-xs" style={{ color: 'var(--md-text-muted)' }}>
-                Documenti di test originali del repository Microsoft MarkItDown. Clicca su <strong>Converti</strong> per
-                aprire il risultato Markdown direttamente in una scheda di MDPad.
+                Documenti reali tratti dalla suite di test ufficiale di Microsoft MarkItDown. Clicca
+                su qualsiasi file per convertirlo sul server e aprirlo come nuova scheda in MDPad.
               </p>
-
-              <div className="overflow-auto rounded-md border" style={{ borderColor: 'var(--md-border)' }}>
-                <table className="w-full border-collapse text-left text-xs">
+              <div
+                className="overflow-hidden rounded-md border"
+                style={{ borderColor: 'var(--md-border)' }}
+              >
+                <table className="w-full text-left text-xs">
                   <thead>
                     <tr
                       className="border-b"
                       style={{
                         backgroundColor: 'var(--md-surface-alt)',
                         borderColor: 'var(--md-border)',
-                        color: 'var(--md-text-muted)',
                       }}
                     >
-                      <th className="px-3 py-2 font-medium">Nome file</th>
-                      <th className="px-3 py-2 font-medium">Estensione</th>
-                      <th className="px-3 py-2 text-right font-medium">Dimensione</th>
-                      <th className="px-3 py-2 text-right font-medium">Azione</th>
+                      <th className="px-3 py-2 font-semibold">Documento</th>
+                      <th className="px-3 py-2 font-semibold">Formato</th>
+                      <th className="px-3 py-2 text-right font-semibold">Dimensione</th>
+                      <th className="px-3 py-2 text-right font-semibold">Azione</th>
                     </tr>
                   </thead>
-                  <tbody className="font-mono tabular-nums">
+                  <tbody>
                     {samples.map((s) => (
                       <tr
                         key={s.filename}
                         className="border-b last:border-b-0"
                         style={{ borderColor: 'var(--md-border)' }}
                       >
-                        <td className="px-3 py-2 font-sans font-medium">{s.filename}</td>
-                        <td className="px-3 py-2" style={{ color: 'var(--md-text-muted)' }}>
-                          {s.extension}
+                        <td className="px-3 py-2 font-mono">{s.filename}</td>
+                        <td
+                          className="px-3 py-2 font-mono uppercase"
+                          style={{ color: 'var(--md-text-muted)' }}
+                        >
+                          {s.extension.replace('.', '')}
                         </td>
-                        <td className="px-3 py-2 text-right" style={{ color: 'var(--md-text-muted)' }}>
+                        <td
+                          className="px-3 py-2 text-right font-mono tabular-nums"
+                          style={{ color: 'var(--md-text-muted)' }}
+                        >
                           {formatBytes(s.sizeBytes)}
                         </td>
                         <td className="px-3 py-2 text-right">
@@ -369,10 +374,10 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
                             type="button"
                             disabled={busy}
                             onClick={() => handleConvertSample(s.filename)}
-                            className="rounded border px-2.5 py-1 font-sans text-xs font-medium whitespace-nowrap transition-colors hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
-                            style={{ borderColor: 'var(--md-border-strong)', color: 'var(--md-text)' }}
+                            className="rounded border px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
+                            style={{ borderColor: 'var(--md-border)', color: 'var(--md-accent)' }}
                           >
-                            Converti
+                            Converti in MDPad
                           </button>
                         </td>
                       </tr>
@@ -385,40 +390,69 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
 
           {tab === 'pipeline' && (
             <div className="space-y-5">
-              <div>
-                <h3 className="mb-2 text-xs font-semibold">
-                  Convertitori MarkItDown registrati (ordine di priorità)
-                </h3>
-                <div className="max-h-52 overflow-auto rounded-md border" style={{ borderColor: 'var(--md-border)' }}>
-                  <table className="w-full border-collapse text-left text-xs">
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-xs font-semibold">
+                    Convertitori registrati (ordine di priorità MarkItDown)
+                  </h3>
+                  <input
+                    type="search"
+                    value={converterFilter}
+                    onChange={(e) => setConverterFilter(e.target.value)}
+                    placeholder="Filtra per formato (.pdf, .docx…)"
+                    aria-label="Filtra convertitori"
+                    className="rounded border px-2.5 py-1 text-xs"
+                    style={{
+                      backgroundColor: 'var(--md-surface-alt)',
+                      borderColor: 'var(--md-border)',
+                      color: 'var(--md-text)',
+                    }}
+                  />
+                </div>
+                <div
+                  className="max-h-56 overflow-y-auto rounded-md border"
+                  style={{ borderColor: 'var(--md-border)' }}
+                >
+                  <table className="w-full text-left text-xs">
                     <thead>
                       <tr
                         className="border-b"
                         style={{
                           backgroundColor: 'var(--md-surface-alt)',
                           borderColor: 'var(--md-border)',
-                          color: 'var(--md-text-muted)',
                         }}
                       >
-                        <th className="px-3 py-2 font-medium">Convertitore</th>
-                        <th className="px-3 py-2 font-medium">Priorità</th>
-                        <th className="px-3 py-2 font-medium">Estensioni</th>
+                        <th className="px-3 py-2 font-semibold">Convertitore</th>
+                        <th className="px-3 py-2 font-semibold">Priorità</th>
+                        <th className="px-3 py-2 font-semibold">Estensioni</th>
+                        <th className="px-3 py-2 font-semibold">Descrizione</th>
                       </tr>
                     </thead>
-                    <tbody className="font-mono tabular-nums">
-                      {converters.map((c) => (
+                    <tbody>
+                      {filteredConverters.map((c) => (
                         <tr
                           key={c.name}
                           className="border-b last:border-b-0"
                           style={{ borderColor: 'var(--md-border)' }}
                         >
-                          <td className="px-3 py-1.5 font-medium">{c.name}</td>
-                          <td className="px-3 py-1.5" style={{ color: 'var(--md-text-muted)' }}>
+                          <td className="px-3 py-1.5 font-mono font-medium">{c.name}</td>
+                          <td
+                            className="px-3 py-1.5 font-mono tabular-nums"
+                            style={{ color: 'var(--md-text-muted)' }}
+                          >
                             {c.priority.toFixed(1)}
                           </td>
-                          <td className="px-3 py-1.5" style={{ color: 'var(--md-text-muted)' }}>
-                            {c.extensions.slice(0, 6).join(', ')}
-                            {c.extensions.length > 6 ? ' …' : ''}
+                          <td
+                            className="px-3 py-1.5 font-mono text-[11px]"
+                            style={{ color: 'var(--md-text-muted)' }}
+                          >
+                            {c.extensions.slice(0, 5).join(', ')}
+                          </td>
+                          <td
+                            className="px-3 py-1.5 text-[11px]"
+                            style={{ color: 'var(--md-text-muted)' }}
+                          >
+                            {c.description}
                           </td>
                         </tr>
                       ))}
@@ -427,50 +461,64 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
                 </div>
               </div>
 
-              {/* MCP JSON-RPC live test */}
-              <form onSubmit={handleRunMcp} className="space-y-2 border-t pt-4" style={{ borderColor: 'var(--md-border)' }}>
-                <div className="flex items-center gap-1.5 text-xs font-semibold">
-                  <Terminal className="h-3.5 w-3.5" />
-                  <span>Test diretto endpoint MCP (POST /api/mcp — tool convert_to_markdown)</span>
-                </div>
-                <div className="flex gap-2">
-                  <label htmlFor="mcp-uri-input" className="sr-only">
-                    URI per test MCP
-                  </label>
-                  <input
-                    id="mcp-uri-input"
-                    type="text"
-                    value={mcpUri}
-                    onChange={(e) => setMcpUri(e.target.value)}
-                    className="min-w-0 flex-1 rounded border px-3 py-1.5 font-mono text-xs"
-                    style={{
-                      backgroundColor: 'var(--md-surface-alt)',
-                      borderColor: 'var(--md-border)',
-                      color: 'var(--md-text)',
-                    }}
-                  />
+              {/* MCP JSON-RPC 2.0 Tester */}
+              <div
+                className="space-y-2.5 rounded-md border p-3.5"
+                style={{
+                  backgroundColor: 'var(--md-surface-alt)',
+                  borderColor: 'var(--md-border)',
+                }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-xs font-semibold">
+                      Endpoint MCP (POST /api/mcp — tool convert_to_markdown)
+                    </h3>
+                    <p className="text-[11px]" style={{ color: 'var(--md-text-muted)' }}>
+                      Compatibile con markitdown-mcp via JSON-RPC 2.0 Streamable HTTP.
+                    </p>
+                  </div>
                   <button
-                    type="submit"
+                    type="button"
                     disabled={busy}
-                    className="rounded px-3.5 py-1.5 text-xs font-medium whitespace-nowrap"
+                    onClick={handleRunMcp}
+                    className="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium whitespace-nowrap"
                     style={{ backgroundColor: 'var(--md-accent)', color: 'var(--md-accent-fg)' }}
                   >
-                    Esegui MCP
+                    <Play className="h-3 w-3" />
+                    <span>Esegui chiamata MCP</span>
                   </button>
                 </div>
-                {mcpOutput && (
+
+                <label htmlFor="mcp-uri-input" className="sr-only">
+                  URI per test MCP
+                </label>
+                <input
+                  id="mcp-uri-input"
+                  type="text"
+                  value={mcpUri}
+                  onChange={(e) => setMcpUri(e.target.value)}
+                  className="w-full rounded border px-2.5 py-1.5 font-mono text-xs"
+                  style={{
+                    backgroundColor: 'var(--md-surface)',
+                    borderColor: 'var(--md-border)',
+                    color: 'var(--md-text)',
+                  }}
+                />
+
+                {mcpResponse && (
                   <pre
-                    className="max-h-40 overflow-auto rounded border p-2.5 font-mono text-xs"
+                    className="max-h-40 overflow-auto rounded border p-2.5 font-mono text-[11px]"
                     style={{
-                      backgroundColor: 'var(--md-surface-alt)',
+                      backgroundColor: 'var(--md-surface)',
                       borderColor: 'var(--md-border)',
                       color: 'var(--md-text)',
                     }}
                   >
-                    {mcpOutput}
+                    {mcpResponse}
                   </pre>
                 )}
-              </form>
+              </div>
             </div>
           )}
         </div>

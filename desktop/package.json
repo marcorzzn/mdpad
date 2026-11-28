@@ -1,0 +1,18 @@
+{
+  "name": "mdpad-desktop",
+  "productName": "MDPad",
+  "version": "1.0.0",
+  "description": "Blocco Note Markdown nativo con Microsoft MarkItDown e Post-it Cartelle",
+  "author": "MDPad Contributors",
+  "license": "MIT",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "pack:win": "electron-builder --win --x64 --config electron-builder.json"
+  },
+  "devDependencies": {
+    "electron": "^35.1.5",
+    "electron-builder": "^26.0.12"
+  }
+}

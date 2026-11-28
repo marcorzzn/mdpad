@@ -1,4 +1,4 @@
-name: Build Release (ZIP & Windows EXE)
+name: Build Release (Windows Desktop Installer, Portable EXE & ZIP)
 
 on:
   workflow_dispatch:
@@ -12,43 +12,8 @@ permissions:
   contents: write
 
 jobs:
-  build-portable-zip:
-    name: Build Portable ZIP (Cross-Platform)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
-      - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install --no-audit --no-fund
-          fi
-
-      - name: Type-check and run unit tests
-        run: |
-          npm run lint
-          npm test
-
-      - name: Build frontend & assemble Portable ZIP
-        run: npm run build:portable
-
-      - name: Upload Portable ZIP artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: MDPad-Portable-ZIP
-          path: release/MDPad-Portable.zip
-          retention-days: 30
-
-  build-windows-exe:
-    name: Build Compiled Windows EXE (x64)
+  build-windows-desktop:
+    name: Build Standalone Windows App (Setup EXE, Portable EXE & ZIP)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
@@ -59,7 +24,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install dependencies
+      - name: Install root dependencies
         shell: pwsh
         run: |
           if (Test-Path package-lock.json) {
@@ -68,90 +33,109 @@ jobs:
             npm install --no-audit --no-fund
           }
 
-      - name: Build Vite frontend
+      - name: Type-check & run unit tests
+        run: |
+          npm run lint
+          npm test
+
+      - name: Build production frontend
         run: npm run build
 
-      - name: Bundle production server for Node 22 SEA
+      - name: Bundle embedded MarkItDown backend for Desktop app
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path build, release-win | Out-Null
-          npx --yes esbuild server.ts `
+          npx --yes esbuild desktop/server-entry.ts `
             --bundle `
             --platform=node `
             --format=cjs `
             --target=node22 `
             --external:vite `
             --external:canvas `
+            --define:process.env.MDPAD_EMBEDDED='"1"' `
             --define:import.meta.url='"file:///mdpad-server.cjs"' `
-            --outfile=build/mdpad-server.cjs
+            --outfile=desktop/server-bundle.cjs
 
-      - name: Build Single Executable Application (MDPad.exe)
+      - name: Install Desktop packager dependencies
+        working-directory: desktop
         shell: pwsh
         run: |
-          @'
-          {
-            "main": "build/mdpad-server.cjs",
-            "output": "build/sea-prep.blob",
-            "disableExperimentalSEAWarning": true,
-            "useCodeCache": true
-          }
-          '@ | Set-Content -Encoding UTF8 build/sea-config.json
-
-          node --experimental-sea-config build/sea-config.json
-
-          $nodePath = (Get-Command node).Source
-          Copy-Item $nodePath release-win/MDPad.exe
-
-          # Remove Authenticode signature before injecting SEA blob (if signtool is available)
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($signtool) {
-            & $signtool.FullName remove /s release-win/MDPad.exe
+          if (Test-Path package-lock.json) {
+            npm ci
+          } else {
+            npm install --no-audit --no-fund
           }
 
-          npx --yes postject release-win/MDPad.exe NODE_SEA_BLOB build/sea-prep.blob `
-            --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2 `
-            --overwrite
+      - name: Package Windows Installer, Portable EXE & Portable ZIP
+        working-directory: desktop
+        shell: pwsh
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npm run pack:win
 
-          Copy-Item -Recurse dist release-win/dist
-          New-Item -ItemType Directory -Force -Path release-win/public | Out-Null
-          Copy-Item -Recurse public/samples release-win/public/samples
-          Copy-Item README.md release-win/README.md -ErrorAction SilentlyContinue
-          Copy-Item LICENSE release-win/LICENSE -ErrorAction SilentlyContinue
+      - name: Verify generated Windows packages
+        shell: pwsh
+        run: |
+          Get-ChildItem release-desktop -File | Format-Table Name, Length
+          if (-not (Get-ChildItem release-desktop/MDPad-Setup-*.exe -ErrorAction SilentlyContinue)) {
+            throw "MDPad-Setup-*.exe was not generated."
+          }
+          if (-not (Get-ChildItem release-desktop/MDPad-Portable-*.exe -ErrorAction SilentlyContinue)) {
+            throw "MDPad-Portable-*.exe was not generated."
+          }
+          if (-not (Get-ChildItem release-desktop/MDPad-Windows-*.zip -ErrorAction SilentlyContinue)) {
+            throw "MDPad-Windows-*.zip was not generated."
+          }
 
-          Compress-Archive -Path release-win/* -DestinationPath release-win/MDPad-Windows-x64.zip -Force
-
-      - name: Upload Windows EXE & ZIP artifacts
+      - name: Upload Windows One-Click Installer (MDPad-Setup.exe)
         uses: actions/upload-artifact@v7
         with:
-          name: MDPad-Windows-x64-EXE
-          path: |
-            release-win/MDPad.exe
-            release-win/MDPad-Windows-x64.zip
+          name: MDPad-Setup-Installer-Windows
+          path: release-desktop/MDPad-Setup-*.exe
+          retention-days: 30
+
+      - name: Upload Single-File Portable EXE (MDPad-Portable.exe)
+        uses: actions/upload-artifact@v7
+        with:
+          name: MDPad-Portable-Single-EXE-Windows
+          path: release-desktop/MDPad-Portable-*.exe
+          retention-days: 30
+
+      - name: Upload Standalone Portable ZIP (MDPad-Windows-x64.zip)
+        uses: actions/upload-artifact@v7
+        with:
+          name: MDPad-Portable-ZIP-Windows
+          path: release-desktop/MDPad-Windows-*.zip
           retention-days: 30
 
   publish-github-release:
     name: Publish GitHub Release (on v* tags)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-portable-zip, build-windows-exe]
+    needs: [build-windows-desktop]
     runs-on: ubuntu-latest
     steps:
+      - name: Download Windows Installer
+        uses: actions/download-artifact@v8
+        with:
+          name: MDPad-Setup-Installer-Windows
+          path: artifacts
+
+      - name: Download Portable Single EXE
+        uses: actions/download-artifact@v8
+        with:
+          name: MDPad-Portable-Single-EXE-Windows
+          path: artifacts
+
       - name: Download Portable ZIP
         uses: actions/download-artifact@v8
         with:
-          name: MDPad-Portable-ZIP
+          name: MDPad-Portable-ZIP-Windows
           path: artifacts
 
-      - name: Download Windows EXE & ZIP
-        uses: actions/download-artifact@v8
-        with:
-          name: MDPad-Windows-x64-EXE
-          path: artifacts
-
-      - name: Create GitHub Release with ZIP and EXE assets
+      - name: Create GitHub Release with standalone Windows apps
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
-            artifacts/MDPad-Portable.zip
-            artifacts/MDPad-Windows-x64.zip
-            artifacts/MDPad.exe
+            artifacts/MDPad-Setup-*.exe
+            artifacts/MDPad-Portable-*.exe
+            artifacts/MDPad-Windows-*.zip

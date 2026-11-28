@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,7 +33,7 @@ const IS_STANDALONE_EXE = detectStandaloneSea();
 const RUNTIME_DIR = IS_STANDALONE_EXE
   ? path.dirname(process.execPath)
   : process.env.MDPAD_RUNTIME_DIR || path.dirname(fileURLToPath(import.meta.url));
-const SAMPLES_DIR = path.join(RUNTIME_DIR, 'public', 'samples');
+let activeSamplesDir = path.join(RUNTIME_DIR, 'public', 'samples');
 const PORT = Number(process.env.PORT || 3000);
 const HOST = IS_STANDALONE_EXE ? '127.0.0.1' : '0.0.0.0';
 
@@ -106,13 +108,13 @@ app.get('/api/converters', (_req, res) => {
 
 app.get('/api/samples', async (_req, res) => {
   try {
-    const entries = await fs.readdir(SAMPLES_DIR, { withFileTypes: true });
+    const entries = await fs.readdir(activeSamplesDir, { withFileTypes: true });
     const samples = await Promise.all(
       entries
         .filter((e) => e.isFile())
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(async (e) => {
-          const stat = await fs.stat(path.join(SAMPLES_DIR, e.name));
+          const stat = await fs.stat(path.join(activeSamplesDir, e.name));
           return {
             filename: e.name,
             extension: path.extname(e.name).toLowerCase(),
@@ -205,7 +207,7 @@ app.post('/api/convert/sample/:filename', async (req, res) => {
   const started = Date.now();
   try {
     const safeName = path.basename(req.params.filename || '');
-    const fullPath = path.join(SAMPLES_DIR, safeName);
+    const fullPath = path.join(activeSamplesDir, safeName);
     await fs.access(fullPath);
 
     const keepDataUris = Boolean(req.body?.keepDataUris);
@@ -310,7 +312,7 @@ app.post('/api/folder/scan', upload.array('files', 40), async (req, res) => {
 app.post('/api/folder/scan-demo', async (req, res) => {
   try {
     const customNote = typeof req.body?.customNote === 'string' ? req.body.customNote : undefined;
-    const entries = await fs.readdir(SAMPLES_DIR, { withFileTypes: true });
+    const entries = await fs.readdir(activeSamplesDir, { withFileTypes: true });
     const fileNames = entries
       .filter((e) => e.isFile())
       .map((e) => e.name)
@@ -318,7 +320,7 @@ app.post('/api/folder/scan-demo', async (req, res) => {
 
     const summaries: FolderFileSummary[] = [];
     for (const name of fileNames) {
-      const fullPath = path.join(SAMPLES_DIR, name);
+      const fullPath = path.join(activeSamplesDir, name);
       const stat = await fs.stat(fullPath);
       try {
         const out = await markItDown.convertLocal(fullPath);
@@ -569,41 +571,96 @@ app.post('/api/mcp', async (req, res) => {
   });
 });
 
-// Frontend serving (Vite dev middleware in development, static dist/ in production or standalone .exe)
-async function startServer(): Promise<void> {
-  const isProd = process.env.NODE_ENV === 'production' || IS_STANDALONE_EXE;
+export interface StartServerOptions {
+  port?: number;
+  host?: string;
+  staticDir?: string;
+  samplesDir?: string;
+  openBrowser?: boolean;
+}
 
-  if (isProd) {
-    const distDir = path.join(RUNTIME_DIR, 'dist');
-    app.use(express.static(distDir));
-    app.get('*', (_req, res) => {
-      res.sendFile(path.join(distDir, 'index.html'));
-    });
-  } else {
-    const { createServer: createViteServer } = await import('vite');
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+export interface StartedMdPadServer {
+  server: Server;
+  port: number;
+  url: string;
+  close: () => Promise<void>;
+}
+
+let frontendMounted = false;
+
+// Frontend serving (Vite dev middleware in development, static dist/ in production or desktop app)
+export async function startMdPadServer(
+  options: StartServerOptions = {}
+): Promise<StartedMdPadServer> {
+  if (options.samplesDir) {
+    activeSamplesDir = options.samplesDir;
   }
 
-  app.listen(PORT, HOST, () => {
-    const url = `http://localhost:${PORT}`;
-    console.log(`MDPad + MarkItDown server attivo su http://${HOST}:${PORT}`);
-    if (IS_STANDALONE_EXE && process.env.MDPAD_NO_BROWSER !== '1') {
-      if (process.platform === 'win32') {
-        execFile('cmd', ['/c', 'start', '', url], () => {});
-      } else if (process.platform === 'darwin') {
-        execFile('open', [url], () => {});
-      } else {
-        execFile('xdg-open', [url], () => {});
-      }
+  const isProd =
+    Boolean(options.staticDir) || process.env.NODE_ENV === 'production' || IS_STANDALONE_EXE;
+
+  if (!frontendMounted) {
+    if (isProd) {
+      const distDir = options.staticDir ?? path.join(RUNTIME_DIR, 'dist');
+      app.use(express.static(distDir));
+      app.get('*', (_req, res) => {
+        res.sendFile(path.join(distDir, 'index.html'));
+      });
+    } else {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true, hmr: false },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
     }
+    frontendMounted = true;
+  }
+
+  const targetPort = options.port !== undefined ? options.port : PORT;
+  const targetHost = options.host ?? HOST;
+
+  return new Promise<StartedMdPadServer>((resolve, reject) => {
+    const server = app.listen(targetPort, targetHost, () => {
+      const addr = server.address() as AddressInfo | null;
+      const boundPort = addr?.port ?? targetPort;
+      const displayHost = targetHost === '0.0.0.0' ? 'localhost' : targetHost;
+      const url = `http://${displayHost}:${boundPort}`;
+
+      if (process.env.MDPAD_EMBEDDED !== '1') {
+        console.log(`MDPad + MarkItDown server attivo su http://${targetHost}:${boundPort}`);
+      }
+
+      const shouldOpenBrowser =
+        options.openBrowser ?? (IS_STANDALONE_EXE && process.env.MDPAD_NO_BROWSER !== '1');
+      if (shouldOpenBrowser) {
+        if (process.platform === 'win32') {
+          execFile('cmd', ['/c', 'start', '', url], () => {});
+        } else if (process.platform === 'darwin') {
+          execFile('open', [url], () => {});
+        } else {
+          execFile('xdg-open', [url], () => {});
+        }
+      }
+
+      resolve({
+        server,
+        port: boundPort,
+        url,
+        close: () =>
+          new Promise<void>((resClose) => {
+            server.close(() => resClose());
+          }),
+      });
+    });
+
+    server.on('error', reject);
   });
 }
 
-startServer().catch((err) => {
-  console.error('Errore avvio server:', err);
-  process.exit(1);
-});
+if (process.env.MDPAD_EMBEDDED !== '1') {
+  startMdPadServer().catch((err) => {
+    console.error('Errore avvio server:', err);
+    process.exit(1);
+  });
+}

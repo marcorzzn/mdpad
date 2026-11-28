@@ -1,0 +1,78 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "io.github.mdpad.editor",
+  "productName": "MDPad",
+  "asar": true,
+  "compression": "maximum",
+  "directories": {
+    "output": "../release-desktop"
+  },
+  "files": [
+    "main.cjs",
+    "preload.cjs",
+    "fileArgs.cjs",
+    "server-bundle.cjs",
+    "assets/**"
+  ],
+  "extraResources": [
+    {
+      "from": "../dist",
+      "to": "dist",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "../public/samples",
+      "to": "public/samples",
+      "filter": ["**/*"]
+    }
+  ],
+  "fileAssociations": [
+    {
+      "ext": "md",
+      "name": "Markdown Document",
+      "description": "Documento Markdown (MDPad)",
+      "icon": "assets/icon.ico",
+      "role": "Editor"
+    },
+    {
+      "ext": "markdown",
+      "name": "Markdown Document",
+      "description": "Documento Markdown (MDPad)",
+      "icon": "assets/icon.ico",
+      "role": "Editor"
+    }
+  ],
+  "win": {
+    "icon": "assets/icon.ico",
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": true,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "MDPad",
+    "runAfterFinish": true,
+    "artifactName": "MDPad-Setup-${version}-x64.exe"
+  },
+  "portable": {
+    "artifactName": "MDPad-Portable-${version}-x64.exe"
+  },
+  "zip": {
+    "artifactName": "MDPad-Windows-${version}-x64.zip"
+  }
+}

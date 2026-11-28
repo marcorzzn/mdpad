@@ -3,6 +3,7 @@ import type { FileEncoding, LineEnding } from '../lib/markitdown/types';
 export interface EditorTab {
   id: string;
   title: string;
+  filePath?: string;
   content: string;
   savedContent: string;
   encoding: FileEncoding;

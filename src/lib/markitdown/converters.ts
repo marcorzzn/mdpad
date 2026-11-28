@@ -572,6 +572,10 @@ export class PdfConverter implements DocumentConverter {
 
   async convert(buffer: Buffer): Promise<DocumentConverterResult> {
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    if (!(globalThis as Record<string, unknown>).pdfjsWorker) {
+      const pdfWorker = await import('pdfjs-dist/legacy/build/pdf.worker.mjs');
+      (globalThis as Record<string, unknown>).pdfjsWorker = pdfWorker;
+    }
     const loadingTask = pdfjs.getDocument({
       data: new Uint8Array(buffer),
       useSystemFonts: true,

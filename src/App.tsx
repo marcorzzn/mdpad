@@ -46,6 +46,7 @@ import type {
   LineEnding,
   ViewMode,
 } from './lib/markitdown/types';
+import type { DesktopFilePayload } from './types/desktop';
 
 interface SavedPrefs {
   theme: AppTheme;
@@ -418,8 +419,109 @@ export default function App() {
     [openDocumentInNewTab, showNotice]
   );
 
+  // Sync browser tab & native desktop window title (classic Notepad "*file - MDPad" style)
+  useEffect(() => {
+    const isDirty = activeTab.content !== activeTab.savedContent;
+    const title = `${isDirty ? '*' : ''}${activeTab.title} - MDPad`;
+    document.title = title;
+    window.mdpadDesktop?.setWindowTitle(title);
+  }, [activeTab.title, activeTab.content, activeTab.savedContent]);
+
+  // Open a file payload delivered by the native desktop app (double-click in Explorer, CLI arg, or native Open dialog)
+  const handleOpenDesktopPayload = useCallback(
+    async (payload: DesktopFilePayload | null | undefined) => {
+      if (!payload) return;
+      if (!payload.isBinary) {
+        const existing = tabs.find((tab) => tab.filePath && tab.filePath === payload.filePath);
+        if (existing) {
+          setActiveTabId(existing.id);
+          return;
+        }
+        const normalized = (payload.content ?? '').replace(/\r\n/g, '\n');
+        const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        setTabs((prev) => [
+          ...prev,
+          {
+            id,
+            title: payload.name,
+            filePath: payload.filePath,
+            content: normalized,
+            savedContent: normalized,
+            encoding: payload.encoding ?? 'UTF-8',
+            lineEnding: payload.lineEnding ?? 'CRLF',
+          },
+        ]);
+        setActiveTabId(id);
+        showNotice(`Aperto "${payload.name}"`);
+        return;
+      }
+
+      if (payload.base64) {
+        try {
+          const raw = atob(payload.base64);
+          const bytes = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+          const file = new File([bytes], payload.name);
+          const form = new FormData();
+          form.append('file', file);
+          const resp = await fetch('/api/convert/file', { method: 'POST', body: form });
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || 'Formato non supportato.');
+          handleOpenConverted(data as ConversionResponse);
+        } catch (err) {
+          showNotice(err instanceof Error ? err.message : 'Impossibile aprire il file.');
+        }
+      }
+    },
+    [tabs, handleOpenConverted, showNotice]
+  );
+
+  // Desktop startup files & Windows Explorer "Open With" second-instance listener
+  useEffect(() => {
+    const bridge = window.mdpadDesktop;
+    if (!bridge?.isDesktop) return;
+    let active = true;
+    void bridge.getInitialFiles().then((files) => {
+      if (!active || !Array.isArray(files)) return;
+      for (const f of files) {
+        void handleOpenDesktopPayload(f);
+      }
+    });
+    const unsub = bridge.onOpenFile((filePayload) => {
+      void handleOpenDesktopPayload(filePayload);
+    });
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [handleOpenDesktopPayload]);
+
   // File Save / Open / Export
-  const handleSaveMd = useCallback(() => {
+  const handleSaveMd = useCallback(async () => {
+    const bridge = window.mdpadDesktop;
+    if (bridge?.isDesktop) {
+      try {
+        const res = await bridge.saveFile({
+          filePath: activeTab.filePath,
+          suggestedName: activeTab.title,
+          content: activeTab.content,
+          encoding: activeTab.encoding,
+          lineEnding: activeTab.lineEnding,
+        });
+        if (res.canceled) return;
+        updateActiveTab((tab) => ({
+          ...tab,
+          title: res.name || tab.title,
+          filePath: res.filePath || tab.filePath,
+          savedContent: tab.content,
+        }));
+        showNotice(`Salvato "${res.name || activeTab.title}" (${activeTab.encoding}, ${activeTab.lineEnding})`);
+      } catch (err) {
+        showNotice(err instanceof Error ? err.message : 'Errore salvataggio file.');
+      }
+      return;
+    }
+
     const bytes = encodeTextForDownload(
       activeTab.content,
       activeTab.encoding,
@@ -437,6 +539,17 @@ export default function App() {
     updateActiveTab((t) => ({ ...t, savedContent: t.content }));
     showNotice(`Salvato "${activeTab.title}" (${activeTab.encoding}, ${activeTab.lineEnding})`);
   }, [activeTab, updateActiveTab, showNotice]);
+
+  const triggerOpenFile = useCallback(() => {
+    const bridge = window.mdpadDesktop;
+    if (bridge?.isDesktop) {
+      void bridge.openFileDialog().then((payload) => {
+        if (payload) void handleOpenDesktopPayload(payload);
+      });
+      return;
+    }
+    openLocalInputRef.current?.click();
+  }, [handleOpenDesktopPayload]);
 
   const handleExportHtml = useCallback(() => {
     const escapedTitle = activeTab.title.replace(/[<>&"]/g, '');
@@ -708,7 +821,7 @@ export default function App() {
         handleInsertDateTime();
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        handleSaveMd();
+        void handleSaveMd();
       } else if (mod && e.key.toLowerCase() === 'n') {
         e.preventDefault();
         handleNewTab();
@@ -717,7 +830,7 @@ export default function App() {
         setShowOutline((v) => !v);
       } else if (mod && e.key.toLowerCase() === 'o' && !e.shiftKey) {
         e.preventDefault();
-        openLocalInputRef.current?.click();
+        triggerOpenFile();
       } else if (mod && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setFindOpen(true);
@@ -754,6 +867,7 @@ export default function App() {
     handleInsertDateTime,
     handleSaveMd,
     handleNewTab,
+    triggerOpenFile,
     handleClearFormatting,
     aiEnabled,
     handleRunAiAssist,
@@ -921,9 +1035,9 @@ export default function App() {
           sessionRestore={sessionRestore}
           actions={{
             onNewTab: handleNewTab,
-            onOpenLocalFile: () => openLocalInputRef.current?.click(),
+            onOpenLocalFile: triggerOpenFile,
             onOpenMarkItDown: () => setMarkitdownOpen(true),
-            onSaveMd: handleSaveMd,
+            onSaveMd: () => void handleSaveMd(),
             onExportHtml: handleExportHtml,
             onOpenPrintPreview: () => setPrintPreviewOpen(true),
             onPrintPdf: () => window.print(),

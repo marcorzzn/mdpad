@@ -1,11 +1,14 @@
 # Dependencies
 node_modules/
+desktop/node_modules/
 
 # Production & release build outputs
 dist/
 build/
 release/
 release-win/
+release-desktop/
+desktop/server-bundle.cjs
 
 # Environment variables
 .env

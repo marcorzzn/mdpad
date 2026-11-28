@@ -439,7 +439,9 @@ export function computeDocumentStats(text: string, cursorOffset: number): Docume
 
 export function normalizeLineEndings(text: string, lineEnding: LineEnding): string {
   const lf = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  return lineEnding === 'CRLF' ? lf.replace(/\n/g, '\r\n') : lf;
+  if (lineEnding === 'CRLF') return lf.replace(/\n/g, '\r\n');
+  if (lineEnding === 'CR') return lf.replace(/\n/g, '\r');
+  return lf;
 }
 
 export function encodeTextForDownload(
@@ -456,6 +458,30 @@ export function encodeTextForDownload(
       bytes[i] = code <= 0xff ? code : 0x3f; // '?' fallback for non-Latin1
     }
     return bytes;
+  }
+
+  if (encoding === 'UTF-16 LE') {
+    const out = new Uint8Array(2 + normalized.length * 2);
+    out[0] = 0xff;
+    out[1] = 0xfe;
+    for (let i = 0; i < normalized.length; i++) {
+      const code = normalized.charCodeAt(i);
+      out[2 + i * 2] = code & 0xff;
+      out[2 + i * 2 + 1] = (code >> 8) & 0xff;
+    }
+    return out;
+  }
+
+  if (encoding === 'UTF-16 BE') {
+    const out = new Uint8Array(2 + normalized.length * 2);
+    out[0] = 0xfe;
+    out[1] = 0xff;
+    for (let i = 0; i < normalized.length; i++) {
+      const code = normalized.charCodeAt(i);
+      out[2 + i * 2] = (code >> 8) & 0xff;
+      out[2 + i * 2 + 1] = code & 0xff;
+    }
+    return out;
   }
 
   const encoder = new TextEncoder();

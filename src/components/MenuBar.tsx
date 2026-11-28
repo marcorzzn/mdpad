@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Moon, Sun } from 'lucide-react';
+import { FolderOpen, Moon, PanelLeft, Sun } from 'lucide-react';
 import { useI18n } from '../lib/i18n/I18nContext';
 import { SUPPORTED_LOCALES } from '../lib/i18n/translations';
 import type {
@@ -21,6 +21,9 @@ export interface MenuActions {
   onPrintPdf: () => void;
   onCloseActiveTab: () => void;
   onOpenFind: (withReplace: boolean) => void;
+  onOpenGoToLine: () => void;
+  onDuplicateLine: () => void;
+  onFormatJson: () => void;
   onClearFormatting: () => void;
   onOpenTableDialog: () => void;
   onInsertDateTime: () => void;
@@ -28,6 +31,7 @@ export interface MenuActions {
   onChangeEncoding: (enc: FileEncoding) => void;
   onChangeLineEnding: (le: LineEnding) => void;
   onChangeViewMode: (mode: ViewMode) => void;
+  onToggleFolderPane: () => void;
   onToggleOutline: () => void;
   onToggleStatusBar: () => void;
   onChangeTheme: (theme: AppTheme) => void;
@@ -43,6 +47,7 @@ interface MenuBarProps {
   actions: MenuActions;
   viewMode: ViewMode;
   wordWrap: boolean;
+  showFolderPane: boolean;
   showOutline: boolean;
   showStatusBar: boolean;
   theme: AppTheme;
@@ -67,6 +72,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   actions,
   viewMode,
   wordWrap,
+  showFolderPane,
   showOutline,
   showStatusBar,
   theme,
@@ -79,6 +85,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   const { t, locale, languagePref } = useI18n();
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
+  const isIt = locale === 'it';
 
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -105,6 +112,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
       items: [
         { label: t.fileNewTab, shortcut: 'Ctrl+N', onClick: actions.onNewTab },
         { label: t.fileOpenLocal, shortcut: 'Ctrl+O', onClick: actions.onOpenLocalFile },
+        { label: isIt ? 'Pannello Cartella' : 'Open Folder Pane', shortcut: 'Ctrl+Shift+E', onClick: actions.onToggleFolderPane },
         { label: t.fileImportMarkItDown, onClick: actions.onOpenMarkItDown },
         { label: '', divider: true },
         { label: t.fileSaveMd, shortcut: 'Ctrl+S', onClick: actions.onSaveMd },
@@ -120,6 +128,10 @@ export const MenuBar: React.FC<MenuBarProps> = ({
       items: [
         { label: t.editFind, shortcut: 'Ctrl+F', onClick: () => actions.onOpenFind(false) },
         { label: t.editReplace, shortcut: 'Ctrl+H', onClick: () => actions.onOpenFind(true) },
+        { label: isIt ? 'Vai alla riga...' : 'Go to line...', shortcut: 'Ctrl+G', onClick: actions.onOpenGoToLine },
+        { label: '', divider: true },
+        { label: isIt ? 'Duplica riga' : 'Duplicate line', shortcut: 'Ctrl+D', onClick: actions.onDuplicateLine },
+        { label: isIt ? 'Formatta JSON' : 'Format JSON', shortcut: 'Shift+Alt+F', onClick: actions.onFormatJson },
         { label: '', divider: true },
         { label: t.editInsertTable, shortcut: 'Ctrl+T', onClick: actions.onOpenTableDialog },
         { label: t.editClearFormatting, shortcut: 'Ctrl+Space', onClick: actions.onClearFormatting },
@@ -133,10 +145,13 @@ export const MenuBar: React.FC<MenuBarProps> = ({
         { label: '', divider: true },
         { label: t.formatEncodingUtf8, checked: encoding === 'UTF-8', onClick: () => actions.onChangeEncoding('UTF-8') },
         { label: t.formatEncodingUtf8Bom, checked: encoding === 'UTF-8-BOM', onClick: () => actions.onChangeEncoding('UTF-8-BOM') },
+        { label: 'UTF-16 LE', checked: encoding === 'UTF-16 LE', onClick: () => actions.onChangeEncoding('UTF-16 LE') },
+        { label: 'UTF-16 BE', checked: encoding === 'UTF-16 BE', onClick: () => actions.onChangeEncoding('UTF-16 BE') },
         { label: t.formatEncodingAnsi, checked: encoding === 'ANSI', onClick: () => actions.onChangeEncoding('ANSI') },
         { label: '', divider: true },
         { label: t.formatEolCrlf, checked: lineEnding === 'CRLF', onClick: () => actions.onChangeLineEnding('CRLF') },
         { label: t.formatEolLf, checked: lineEnding === 'LF', onClick: () => actions.onChangeLineEnding('LF') },
+        { label: 'Macintosh (CR)', checked: lineEnding === 'CR', onClick: () => actions.onChangeLineEnding('CR') },
       ],
     },
     view: {
@@ -146,6 +161,7 @@ export const MenuBar: React.FC<MenuBarProps> = ({
         { label: t.viewSplit, shortcut: 'Ctrl+E', checked: viewMode === 'split', onClick: () => actions.onChangeViewMode('split') },
         { label: t.viewPreviewOnly, checked: viewMode === 'preview', onClick: () => actions.onChangeViewMode('preview') },
         { label: '', divider: true },
+        { label: isIt ? 'Pannello Cartella' : 'Folder Pane', shortcut: 'Ctrl+Shift+E', checked: showFolderPane, onClick: actions.onToggleFolderPane },
         { label: t.viewOutline, shortcut: 'Ctrl+Shift+O', checked: showOutline, onClick: actions.onToggleOutline },
         { label: t.viewStatusBar, checked: showStatusBar, onClick: actions.onToggleStatusBar },
         { label: '', divider: true },
@@ -194,81 +210,98 @@ export const MenuBar: React.FC<MenuBarProps> = ({
         borderColor: 'var(--md-border)',
       }}
     >
-      {/* Classic Windows menu bar */}
-      <nav aria-label={t.mainMenuAria} className="flex items-center gap-0.5 overflow-x-auto">
-        {(Object.keys(menus) as MenuKey[]).map((key) => {
-          const menu = menus[key];
-          const isOpen = openMenu === key;
-          return (
-            <div key={key} className="relative">
-              <button
-                type="button"
-                aria-haspopup="menu"
-                aria-expanded={isOpen}
-                onClick={() => setOpenMenu(isOpen ? null : key)}
-                onMouseEnter={() => {
-                  if (openMenu !== null) setOpenMenu(key);
-                }}
-                className="rounded px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors hover:bg-black/5 dark:hover:bg-white/10"
-                style={{
-                  backgroundColor: isOpen ? 'var(--md-accent-soft)' : undefined,
-                  color: 'var(--md-text)',
-                }}
-              >
-                {menu.label}
-              </button>
+      {/* Left: RE:Notepad Folder Pane button + Classic Windows menu bar */}
+      <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+        <button
+          type="button"
+          onClick={actions.onToggleFolderPane}
+          aria-pressed={showFolderPane}
+          aria-label={isIt ? 'Mostra o nascondi pannello cartella' : 'Toggle folder pane'}
+          title={isIt ? 'Pannello Cartella (Ctrl+Shift+E)' : 'Folder Pane (Ctrl+Shift+E)'}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+          style={{
+            backgroundColor: showFolderPane ? 'var(--md-accent-soft)' : 'transparent',
+            color: showFolderPane ? 'var(--md-accent)' : 'var(--md-text-muted)',
+          }}
+        >
+          <PanelLeft className="h-3.5 w-3.5" />
+        </button>
 
-              {isOpen && (
-                <div
-                  role="menu"
-                  className="fixed z-50 mt-1 max-h-[80vh] min-w-[265px] overflow-y-auto rounded-md border py-1 shadow-lg"
+        <nav aria-label={t.mainMenuAria} className="flex items-center gap-0.5">
+          {(Object.keys(menus) as MenuKey[]).map((key) => {
+            const menu = menus[key];
+            const isOpen = openMenu === key;
+            return (
+              <div key={key} className="relative">
+                <button
+                  type="button"
+                  aria-haspopup="menu"
+                  aria-expanded={isOpen}
+                  onClick={() => setOpenMenu(isOpen ? null : key)}
+                  onMouseEnter={() => {
+                    if (openMenu !== null) setOpenMenu(key);
+                  }}
+                  className="rounded px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors hover:bg-black/5 dark:hover:bg-white/10"
                   style={{
-                    backgroundColor: 'var(--md-surface)',
-                    borderColor: 'var(--md-border)',
+                    backgroundColor: isOpen ? 'var(--md-accent-soft)' : undefined,
                     color: 'var(--md-text)',
                   }}
                 >
-                  {menu.items.map((item, idx) =>
-                    item.divider ? (
-                      <div
-                        key={`div-${idx}`}
-                        className="my-1 border-t"
-                        style={{ borderColor: 'var(--md-border)' }}
-                      />
-                    ) : (
-                      <button
-                        key={item.label}
-                        type="button"
-                        role="menuitem"
-                        onClick={() => {
-                          setOpenMenu(null);
-                          item.onClick?.();
-                        }}
-                        className="flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10"
-                      >
-                        <span className="flex items-center gap-2 whitespace-nowrap">
-                          <span className="inline-block w-3 text-center font-mono">
-                            {item.checked ? '✓' : ''}
+                  {menu.label}
+                </button>
+
+                {isOpen && (
+                  <div
+                    role="menu"
+                    className="fixed z-50 mt-1 max-h-[80vh] min-w-[265px] overflow-y-auto rounded-md border py-1 shadow-lg"
+                    style={{
+                      backgroundColor: 'var(--md-surface)',
+                      borderColor: 'var(--md-border)',
+                      color: 'var(--md-text)',
+                    }}
+                  >
+                    {menu.items.map((item, idx) =>
+                      item.divider ? (
+                        <div
+                          key={`div-${idx}`}
+                          className="my-1 border-t"
+                          style={{ borderColor: 'var(--md-border)' }}
+                        />
+                      ) : (
+                        <button
+                          key={item.label}
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            item.onClick?.();
+                          }}
+                          className="flex w-full items-center justify-between gap-6 px-3 py-1.5 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+                        >
+                          <span className="flex items-center gap-2 whitespace-nowrap">
+                            <span className="inline-block w-3 text-center font-mono">
+                              {item.checked ? '✓' : ''}
+                            </span>
+                            <span>{item.label}</span>
                           </span>
-                          <span>{item.label}</span>
-                        </span>
-                        {item.shortcut && (
-                          <span
-                            className="font-mono text-[11px] whitespace-nowrap"
-                            style={{ color: 'var(--md-text-muted)' }}
-                          >
-                            {item.shortcut}
-                          </span>
-                        )}
-                      </button>
-                    )
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </nav>
+                          {item.shortcut && (
+                            <span
+                              className="font-mono text-[11px] whitespace-nowrap"
+                              style={{ color: 'var(--md-text-muted)' }}
+                            >
+                              {item.shortcut}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </nav>
+      </div>
 
       {/* Right actions: view switcher + Night Mode toggle + primary Folder Post-it CTA */}
       <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">

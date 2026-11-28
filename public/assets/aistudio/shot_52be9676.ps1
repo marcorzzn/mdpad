@@ -1,0 +1,85 @@
+# Screenshot RENotepad without stealing focus: the window is shown nearly
+# transparent and click-through, never activated, and captured with PrintWindow.
+# -Dialog save|goto|about opens that dialog and composes it over the dimmed
+# window, the way it looks on screen.
+# -File opens that file in the first tab (extra tabs are modified Untitled ones).
+# The picture is cropped to the visible window.
+# -Preview shows the Markdown preview of -File (a .md file).
+# -Pane shows the folder pane on the folder of -File, with its folders expanded.
+# -Height sets the window height (the README Markdown pair uses 860, so the whole preview shows).
+# Usage: pwsh tests/ui/shot.ps1 -Out shot.png [-Exe ...] [-Height 860] [-Light] [-Tabs 3] [-Lines 60] [-Dialog save] [-File notes.txt [-Preview] [-Pane]]
+param(
+  [Parameter(Mandatory)][string]$Out,
+  [string]$Exe = (Join-Path $PSScriptRoot '..\..\target\debug\RENotepad.exe'),
+  [int]$Height = 607,
+  [switch]$Light,
+  [int]$Tabs = 2,
+  [int]$Lines = 1,
+  [ValidateSet('', 'save', 'goto', 'about')][string]$Dialog = '',
+  [string]$File,
+  [switch]$Preview, # show the Markdown preview of -File (a .md file)
+  [switch]$Pane # show the folder pane on the folder of -File
+)
+. "$PSScriptRoot\lib.ps1"
+
+$args_ = if ($File) { @("`"$((Resolve-Path $File).Path)`"") } else { @() }
+$p = Start-Process $Exe -ArgumentList $args_ -WindowStyle Hidden -PassThru
+$main = Wait-Top $p.Id 'RENotepad' ([NullString]::Value); Start-Sleep -Milliseconds 300
+if ($Light) { Cmd $main 44 }
+if ($File) {
+  for ($i = 1; $i -lt $Tabs; $i++) { Cmd $main 1; Type-Text ([Q]::VisibleEdit($main)) 'This is RE:Notepad' }
+  if ($Tabs -gt 1 -and $Dialog -ne 'save') { Cmd $main 12 } # Ctrl+Tab wraps back to the file (the save prompt needs the modified tab)
+  Show-Ghost $main 952 $Height
+} else {
+  if ($Tabs -gt 1) { Type-Text ([Q]::VisibleEdit($main)) 'This is RE:Notepad' } # a modified tab behind
+  for ($i = 1; $i -lt $Tabs; $i++) { Cmd $main 1 }
+  Show-Ghost $main 952 $Height
+  # The active tab gets $Lines lines (enough of them brings up the scrollbar).
+  $text = (1..$Lines | ForEach-Object { if ($_ -eq 1) { 'This is RE:Notepad' } else { "line $_" } }) -join "`r`n"
+  Type-Text ([Q]::VisibleEdit($main)) $text
+}
+if ($Preview) { Cmd $main 54 } # View > Markdown preview
+if ($Pane) {
+  Cmd $main 56; Start-Sleep -Milliseconds 800 # View > Folder pane: the root is the file's folder
+  Add-Type -Name TV -Namespace Shot -MemberDefinition '[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr p, IntPtr a, string c, string w);'
+  $tree = [Shot.TV]::FindWindowExW($main, [IntPtr]::Zero, 'SysTreeView32', $null)
+  # Expand each folder under the root: select it (TVM_SELECTITEM), then a posted Right arrow lists it.
+  $root = [Q]::SendMessageW($tree, 0x110A, [IntPtr]0, [IntPtr]::Zero)  # TVM_GETNEXTITEM, TVGN_ROOT
+  $c = [Q]::SendMessageW($tree, 0x110A, [IntPtr]4, $root)              # TVGN_CHILD
+  while ($c -ne [IntPtr]::Zero) {
+    [Q]::SendMessageW($tree, 0x110B, [IntPtr]9, $c) | Out-Null           # TVGN_CARET
+    [Q]::PostMessageW($tree, 0x100, [IntPtr]0x27, [IntPtr]1) | Out-Null; Start-Sleep -Milliseconds 400
+    $c = [Q]::SendMessageW($tree, 0x110A, [IntPtr]1, $c)               # TVGN_NEXT
+  }
+  [Q]::SendMessageW($tree, 0x110B, [IntPtr]9, [IntPtr]::Zero) | Out-Null # no selection: only the bold file stands out
+  Start-Sleep -Milliseconds 300
+}
+Start-Sleep -Milliseconds 300
+if (-not $Dialog) {
+  Snap $main $Out
+} else {
+  Cmd $main @{ save = 10; goto = 25; about = 48 }[$Dialog]
+  $dlg = Wait-Top $p.Id 'RENotepadDialog' ([NullString]::Value); Start-Sleep -Milliseconds 300
+  $back = "$Out.main.png"; $front = "$Out.dialog.png"
+  Snap $main $back; Snap $dlg $front
+  $mr = New-Object int[] 4; $dr = New-Object int[] 4
+  [Q]::GetWindowRect($main, $mr) | Out-Null; [Q]::GetWindowRect($dlg, $dr) | Out-Null
+  $bmp = [Drawing.Bitmap]::FromFile($back); $fg = [Drawing.Bitmap]::FromFile($front)
+  $g = [Drawing.Graphics]::FromImage($bmp)
+  $g.FillRectangle((New-Object Drawing.SolidBrush ([Drawing.Color]::FromArgb(77, 0, 0, 0))), 0, 0, $bmp.Width, $bmp.Height)
+  # DWM rounds the corners (8 px) and draws the border; PrintWindow sees neither.
+  $g.SmoothingMode = 'AntiAlias'
+  $x = $dr[0] - $mr[0]; $y = $dr[1] - $mr[1]; $w = $fg.Width; $h = $fg.Height; $d = 16 * $fg.HorizontalResolution / 96
+  $path = New-Object Drawing.Drawing2D.GraphicsPath
+  $path.AddArc($x, $y, $d, $d, 180, 90); $path.AddArc($x + $w - $d, $y, $d, $d, 270, 90)
+  $path.AddArc($x + $w - $d, $y + $h - $d, $d, $d, 0, 90); $path.AddArc($x, $y + $h - $d, $d, $d, 90, 90); $path.CloseFigure()
+  $g.SetClip($path); $g.DrawImage($fg, $x, $y, $w, $h); $g.ResetClip()
+  $border = if ($Light) { [Drawing.Color]::FromArgb(202, 202, 202) } else { [Drawing.Color]::FromArgb(61, 61, 61) }
+  $g.DrawPath((New-Object Drawing.Pen $border), $path)
+  $g.Dispose(); $fg.Dispose(); $bmp.Save("$Out.tmp.png"); $bmp.Dispose()
+  Move-Item -Force "$Out.tmp.png" $Out; Remove-Item $back, $front
+}
+Crop-ToFrame $main $Out
+Stop-Process -Id $p.Id -Force
+Start-Sleep -Milliseconds 300; Remove-Item $TestKey -Recurse -ErrorAction SilentlyContinue # the run adds -File to the recent files
+"wrote $Out"

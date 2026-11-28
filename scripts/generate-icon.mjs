@@ -199,8 +199,12 @@ function buildIcoFromPngs(entries) {
 }
 
 async function main() {
-  const outDir = path.join(process.cwd(), 'desktop', 'assets');
-  await fs.mkdir(outDir, { recursive: true });
+  const desktopDir = path.join(process.cwd(), 'desktop', 'assets');
+  const nativeAssetsDir = path.join(process.cwd(), 'native', 'assets');
+  const nativeDocsDir = path.join(process.cwd(), 'native', 'docs');
+  await fs.mkdir(desktopDir, { recursive: true });
+  await fs.mkdir(nativeAssetsDir, { recursive: true });
+  await fs.mkdir(nativeDocsDir, { recursive: true });
 
   const sizes = [256, 64, 48, 32, 16];
   const rendered = sizes.map((size) => ({ size, png: renderMdPadIcon(size) }));
@@ -208,10 +212,12 @@ async function main() {
   const png256 = rendered[0].png;
   const ico = buildIcoFromPngs(rendered);
 
-  await fs.writeFile(path.join(outDir, 'icon.png'), png256);
-  await fs.writeFile(path.join(outDir, 'icon.ico'), ico);
+  await fs.writeFile(path.join(desktopDir, 'icon.png'), png256);
+  await fs.writeFile(path.join(desktopDir, 'icon.ico'), ico);
+  await fs.writeFile(path.join(nativeAssetsDir, 'MDPad.ico'), ico);
+  await fs.writeFile(path.join(nativeDocsDir, 'icon.png'), png256);
   console.log(
-    `Generated desktop/assets/icon.png (${png256.length} B) and desktop/assets/icon.ico (${ico.length} B)`
+    `Generated icon.png (${png256.length} B) and MDPad.ico (${ico.length} B) in desktop/assets and native/`
   );
 }
 

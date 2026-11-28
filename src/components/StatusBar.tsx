@@ -5,11 +5,14 @@ import type { FileEncoding, LineEnding } from '../lib/markitdown/types';
 
 interface StatusBarProps {
   stats: DocumentStats;
+  selectedChars: number;
+  matchedBracketPair: { chars: string; partnerOffset: number } | null;
   encoding: FileEncoding;
   lineEnding: LineEnding;
   zoom: number;
   readOnly?: boolean;
   lastAutoSavedAt: string | null;
+  onJumpToOffset: (offset: number) => void;
   onChangeEncoding: (enc: FileEncoding) => void;
   onChangeLineEnding: (le: LineEnding) => void;
   onChangeZoom: (nextZoom: number) => void;
@@ -17,23 +20,50 @@ interface StatusBarProps {
 
 const ENCODING_OPTIONS: Array<{ value: FileEncoding; label: string }> = [
   { value: 'UTF-8', label: 'UTF-8' },
-  { value: 'UTF-8-BOM', label: 'UTF-8 BOM' },
-  { value: 'ANSI', label: 'ANSI (Win-1252)' },
+  { value: 'UTF-8-BOM', label: 'UTF-8 with BOM' },
+  { value: 'UTF-16 LE', label: 'UTF-16 LE' },
+  { value: 'UTF-16 BE', label: 'UTF-16 BE' },
+  { value: 'ANSI', label: 'ANSI' },
 ];
+
+const NEXT_LINE_ENDING: Record<LineEnding, LineEnding> = {
+  CRLF: 'LF',
+  LF: 'CR',
+  CR: 'CRLF',
+};
+
+const LINE_ENDING_LABEL: Record<LineEnding, string> = {
+  CRLF: 'Windows (CRLF)',
+  LF: 'Unix (LF)',
+  CR: 'Macintosh (CR)',
+};
 
 export const StatusBar: React.FC<StatusBarProps> = ({
   stats,
+  selectedChars,
+  matchedBracketPair,
   encoding,
   lineEnding,
   zoom,
   readOnly,
   lastAutoSavedAt,
+  onJumpToOffset,
   onChangeEncoding,
   onChangeLineEnding,
   onChangeZoom,
 }) => {
   const { t, locale } = useI18n();
   const readingLabel = stats.words === 0 ? '0 min' : `~${stats.readingMinutes} min`;
+  const isIt = locale === 'it';
+
+  const charCountLabel =
+    selectedChars > 0
+      ? isIt
+        ? `${selectedChars} di ${stats.chars} car.`
+        : `${selectedChars} of ${stats.chars} chars`
+      : isIt
+        ? `${stats.chars} car.`
+        : `${stats.chars} chars`;
 
   const formattedAutoSave = lastAutoSavedAt
     ? new Date(lastAutoSavedAt).toLocaleTimeString(locale, {
@@ -58,13 +88,34 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           Ln {stats.line}, Col {stats.col}
         </span>
         <span aria-hidden="true">·</span>
-        <span>
-          {stats.words} {t.wordsLabel} · {readingLabel}
-        </span>
-        <span aria-hidden="true" className="hidden sm:inline">
+        <span>{charCountLabel}</span>
+        <span aria-hidden="true" className="hidden md:inline">
           ·
         </span>
-        <span className="hidden sm:inline" title={t.prefsAutoSaveDesc}>
+        <span className="hidden md:inline">
+          {stats.words} {t.wordsLabel} · {readingLabel}
+        </span>
+        {matchedBracketPair && (
+          <>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              onClick={() => onJumpToOffset(matchedBracketPair.partnerOffset)}
+              title={isIt ? 'Vai alla parentesi corrispondente' : 'Jump to matching bracket'}
+              className="rounded border px-1.5 py-0 text-[11px] font-semibold transition-colors hover:bg-black/5 dark:hover:bg-white/10"
+              style={{
+                borderColor: 'var(--md-accent)',
+                color: 'var(--md-accent)',
+              }}
+            >
+              {matchedBracketPair.chars} ↔
+            </button>
+          </>
+        )}
+        <span aria-hidden="true" className="hidden lg:inline">
+          ·
+        </span>
+        <span className="hidden lg:inline" title={t.prefsAutoSaveDesc}>
           {formattedAutoSave ? `${t.autoSaveLabel} ${formattedAutoSave}` : t.autoSaveReady}
         </span>
         {readOnly && (
@@ -110,12 +161,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
 
         <button
           type="button"
-          onClick={() => onChangeLineEnding(lineEnding === 'CRLF' ? 'LF' : 'CRLF')}
+          onClick={() => onChangeLineEnding(NEXT_LINE_ENDING[lineEnding])}
           title={t.eolToggleTitle}
           aria-label={`EOL ${lineEnding}`}
           className="rounded px-1.5 py-0.5 whitespace-nowrap transition-colors hover:bg-black/5 dark:hover:bg-white/10"
         >
-          {lineEnding === 'CRLF' ? 'Windows (CRLF)' : 'Unix/macOS (LF)'}
+          {LINE_ENDING_LABEL[lineEnding]}
         </button>
 
         <span aria-hidden="true">·</span>

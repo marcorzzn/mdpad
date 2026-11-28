@@ -1,0 +1,44 @@
+# UI tests
+
+Scripts that drive the real exe without stealing focus. The exe starts
+**hidden** and is driven only through window messages: `WM_COMMAND` for menu
+commands, `WM_SETTEXT` / `EM_REPLACESEL` for typing, posted mouse messages for
+the tab strip, a posted `WM_SYSCHAR` for Alt+letter. Nothing is sent as real
+keystrokes, so whatever you're working in is never touched.
+
+When a check needs real layout or pixels, `Show-Ghost` (in `lib.ps1`) shows the
+window at 1/255 opacity, click-through, without a taskbar button and without
+activating it, and `Snap` captures it with `PrintWindow`. A window moved off
+every monitor doesn't work: DWM skips it and the capture comes out blank.
+
+| Script | What it checks |
+|---|---|
+| `smoke.ps1` | Find (Down, wrap-around, Alt+R label mnemonic, closing Find under its "Cannot find" box), Replace All, Go To (and its refused-line box); Win11 dialogs disable and dim the owner; 16 px text inset, also after zoom; scrollbars only when there's something to scroll; tabs (Ctrl+N, Ctrl+Tab, `+` button, middle-click close, the save prompt, close-window prompt); settings written on close. Exits 1 on any FAIL. |
+| `preview.ps1` | Markdown preview: the menu item and the menu-bar button show it, the text renders, editing commands do nothing, Esc goes back, each tab keeps its mode across tab switches, theme and zoom changes keep it, and a relative `.md` link opens a tab. Saves two screenshots beside its test files. |
+| `menus.ps1` | Alt+F opens File, Left/Right walk the menu bar and wrap to the gear, Esc closes. A real popup menu has to open, so one flashes near the top-left of the screen for about a second. It still never takes focus. |
+| `shot.ps1` | Screenshot only (`-Out file.png [-Height N] [-Light] [-Tabs N] [-Lines N] [-Dialog save\|goto\|about] [-File notes.txt [-Preview] [-Pane]]`), cropped to the visible window. The README screenshots in `docs/screenshots/` are made with it. The Markdown pair uses `-Tabs 1 -Height 860 -File docs/screenshots/weekend.md [-Preview]`. `-Dialog` composes the dialog over the window darkened the way the app dims it, with DWM's rounded corners and border drawn in, since `PrintWindow` sees neither. |
+| `update.ps1` | Needs the internet. The startup update check stays quiet (no dialog, a clickable status-bar notice); clicking the notice and *Settings › Check for updates* both answer with a dialog; a repo with no release says so. Uses `RENOTEPAD_UPDATE_REPO` to point the check at other repos. |
+| `pins.ps1` | Jump list pins, on made-up jump lists only (`RENOTEPAD_PINS_FROM` / `RENOTEPAD_PINS_TO`). The import brings files over in order and skips one that was since deleted; a second import adds nothing; the source list is left alone. `/PinToJumpList` pins a file, says so when it's already pinned, and won't pin a missing file. *File › Pin to jump list* pins the open file, and the gear menu import answers with a dialog. It cleans up both test lists. |
+| `installer.ps1` | The built setup (`dist\`), end to end: a silent per-user install imports pins once from a made-up list, a reinstall doesn't, the shortcut and ProgID carry the app ID, and uninstall leaves no trace in the registry. It refuses to run, and touches nothing, if RENotepad is installed for the user. It puts back the import marker in `HKCU\Software\RENotepad`. |
+| `recent.ps1` | *File › Recent files*: the first-start import from a made-up jump list (own entry stays on top, a deleted file is skipped, a second start imports nothing), opening from the list, a missing entry removed when picked, and Clear. |
+| `json.ps1` | A minified `.json` opens formatted and not changed, Format JSON is one undo step, text that is not JSON and `.jsonl` stay as they are, the gear setting turns it off. Exits 1 on any FAIL. |
+| `editing.ps1` | Multi-level undo and redo, Ctrl+D, Tab on lines and Tab as spaces, undo kept across a word wrap toggle. Exits 1 on any FAIL. |
+| `scrollbars.ps1` | Word wrap and a 1 px height sweep while typing: the app survives and the vertical bar shows exactly when needed. |
+| `jumplist.ps1` | Jump list helper for `pins.ps1` and `installer.ps1`: pin, read, clear, and the list file name. |
+| `lib.ps1` | Shared helpers: window lookup, message helpers, `Show-Ghost`, `Snap`. It also points the app at the test key `HKCU\Software\RENotepad.Test` (`RENOTEPAD_KEY`) and at a jump list that does not exist for the recent-files import (`RENOTEPAD_PINS_FROM`). |
+
+```sh
+cargo build && pwsh tests/ui/smoke.ps1 && pwsh tests/ui/menus.ps1
+pwsh tests/ui/smoke.ps1 -Exe target\release\RENotepad.exe   # release too
+```
+
+Limits:
+- **Hover highlights can't be captured.** The app asks Windows to report when the
+  mouse leaves; with no real cursor over the ghost, that report arrives at once
+  and the highlight clears before the capture.
+- The app under test writes only the test key `HKCU\Software\RENotepad.Test`.
+  `lib.ps1` deletes it when a script starts, and smoke, scrollbars and recent
+  delete it at the end. A run killed outright can leave it behind.
+- Windows 11 dialogs over a ghost are ghosts too: same opacity, click-through,
+  never activated. So dialogs opened after `Show-Ghost` never appear on
+  screen. The Find dialog (a classic one) still flashes for a moment.

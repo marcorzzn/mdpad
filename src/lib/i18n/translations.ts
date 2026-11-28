@@ -409,7 +409,7 @@ export const TRANSLATIONS: Record<SupportedLocale, TranslationBundle> = {
     prefsMatrixTitle: 'Compatibilità universale delle note e dei Post-it cartella',
     prefsKitTitle: 'Kit Windows, CLI MarkItDown & Build GitHub Actions (ZIP / .EXE)',
     prefsGhActionsNote:
-      'GitHub Actions compila l’app desktop Windows autonoma: MDPad-Setup.exe (installer 1 clic con associazione file .md), MDPad-Portable.exe (eseguibile singolo) e MDPad-Windows-x64.zip. Nessun server o Node.js richiesto: apri e lavori come Blocco Note.',
+      'GitHub Actions compila l’eseguibile nativo Rust + Win32 (~700 KB, architettura RE:Notepad): MDPad-1.0.0-setup.exe (installer Inno Setup per utente senza UAC), MDPad-1.0.0-portable.zip (nessun dropper auto-estraente in %TEMP%) e SHA256SUMS.txt, con supporto firma Authenticode opzionale.',
     prefsShortcutsTitle: 'Scorciatoie da tastiera (stile Blocco Note)',
 
     noticeSaved: 'Salvato',
@@ -591,7 +591,7 @@ export const TRANSLATIONS: Record<SupportedLocale, TranslationBundle> = {
     prefsMatrixTitle: 'Cross-platform compatibility for notes and folder Post-its',
     prefsKitTitle: 'Windows Kit, MarkItDown CLI & GitHub Actions (ZIP / .EXE)',
     prefsGhActionsNote:
-      'GitHub Actions builds the standalone Windows desktop app: MDPad-Setup.exe (one-click installer with .md association), MDPad-Portable.exe (single executable), and MDPad-Windows-x64.zip. Zero server or Node.js required — just open and write like Notepad.',
+      'GitHub Actions builds the native Rust + Win32 executable (~700 KB, RE:Notepad architecture): MDPad-1.0.0-setup.exe (per-user Inno Setup installer, no UAC), MDPad-1.0.0-portable.zip (no self-extracting %TEMP% dropper), and SHA256SUMS.txt, with optional Authenticode signing.',
     prefsShortcutsTitle: 'Keyboard shortcuts (Notepad style)',
 
     noticeSaved: 'Saved',
@@ -773,7 +773,7 @@ export const TRANSLATIONS: Record<SupportedLocale, TranslationBundle> = {
     prefsMatrixTitle: 'Compatibilidad universal de notas y Post-its de carpeta',
     prefsKitTitle: 'Kit Windows, CLI MarkItDown y GitHub Actions (ZIP / .EXE)',
     prefsGhActionsNote:
-      'GitHub Actions compila la app de escritorio Windows autónoma: MDPad-Setup.exe (instalador en 1 clic con asociación .md), MDPad-Portable.exe y MDPad-Windows-x64.zip. Sin servidor ni Node.js: abre y escribe como el Bloc de notas.',
+      'GitHub Actions compila el ejecutable nativo Rust + Win32 (~700 KB, arquitectura RE:Notepad): MDPad-1.0.0-setup.exe (instalador Inno Setup por usuario sin UAC), MDPad-1.0.0-portable.zip (sin autoextración en %TEMP%) y SHA256SUMS.txt, con firma Authenticode opcional.',
     prefsShortcutsTitle: 'Atajos de teclado (estilo Bloc de notas)',
 
     noticeSaved: 'Guardado',
@@ -955,7 +955,7 @@ export const TRANSLATIONS: Record<SupportedLocale, TranslationBundle> = {
     prefsMatrixTitle: 'Compatibilité universelle des notes et Post-its de dossier',
     prefsKitTitle: 'Kit Windows, CLI MarkItDown & GitHub Actions (ZIP / .EXE)',
     prefsGhActionsNote:
-      'GitHub Actions compile l’application de bureau Windows autonome : MDPad-Setup.exe (installeur en 1 clic avec association .md), MDPad-Portable.exe et MDPad-Windows-x64.zip. Aucun serveur ni Node.js requis : ouvrez et écrivez comme dans le Bloc-notes.',
+      'GitHub Actions compile l’exécutable natif Rust + Win32 (~700 Ko, architecture RE:Notepad) : MDPad-1.0.0-setup.exe (installeur Inno Setup par utilisateur sans UAC), MDPad-1.0.0-portable.zip (sans auto-extraction dans %TEMP%) et SHA256SUMS.txt, avec signature Authenticode optionnelle.',
     prefsShortcutsTitle: 'Raccourcis clavier (style Bloc-notes)',
 
     noticeSaved: 'Enregistré',
@@ -1137,7 +1137,7 @@ export const TRANSLATIONS: Record<SupportedLocale, TranslationBundle> = {
     prefsMatrixTitle: 'Plattformübergreifende Kompatibilität für Notizen & Ordner-Post-its',
     prefsKitTitle: 'Windows-Kit, MarkItDown CLI & GitHub Actions (ZIP / .EXE)',
     prefsGhActionsNote:
-      'GitHub Actions erstellt die eigenständige Windows-Desktop-App: MDPad-Setup.exe (1-Klick-Installer mit .md-Verknüpfung), MDPad-Portable.exe und MDPad-Windows-x64.zip. Kein Server oder Node.js nötig — einfach öffnen und schreiben wie im Editor.',
+      'GitHub Actions erstellt die native Rust + Win32-EXE (~700 KB, RE:Notepad-Architektur): MDPad-1.0.0-setup.exe (Inno-Setup-Installer pro Benutzer ohne UAC), MDPad-1.0.0-portable.zip (ohne selbstextrahierenden %TEMP%-Dropper) und SHA256SUMS.txt, mit optionaler Authenticode-Signatur.',
     prefsShortcutsTitle: 'Tastenkürzel (Editor-Stil)',
 
     noticeSaved: 'Gespeichert',

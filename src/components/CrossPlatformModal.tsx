@@ -284,6 +284,45 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
             </div>
           </section>
 
+          {/* Native Windows Rust + Win32 Distribution (RE:Notepad architecture) */}
+          <section className="space-y-2.5">
+            <h3
+              className="text-xs font-semibold uppercase tracking-wider"
+              style={{ color: 'var(--md-text-muted)' }}
+            >
+              {locale === 'it'
+                ? 'Versione Desktop Windows Nativa (Rust + Win32 · Architettura RE:Notepad)'
+                : 'Native Windows Desktop Edition (Rust + Win32 · RE:Notepad Architecture)'}
+            </h3>
+            <div
+              className="space-y-2 rounded-md border p-3.5 text-xs"
+              style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-surface-alt)' }}
+            >
+              <p className="font-medium">
+                {locale === 'it'
+                  ? 'Eseguibile singolo nativo (~700 KB) — Zero Electron, Zero server locali, Zero falsi positivi da dropper auto-estraenti'
+                  : 'Single native executable (~700 KB) — Zero Electron, Zero local servers, Zero self-extracting temp-dropper AV triggers'}
+              </p>
+              <ul className="list-disc space-y-1 pl-4" style={{ color: 'var(--md-text-muted)' }}>
+                <li>
+                  {locale === 'it'
+                    ? 'Compilato nativamente in Rust + Win32/GDI su GitHub Actions (native/MDPad.exe) con manifest asInvoker + PerMonitorV2 e metadati VERSIONINFO completi.'
+                    : 'Compiled natively in Rust + Win32/GDI on GitHub Actions (native/MDPad.exe) with asInvoker + PerMonitorV2 manifest and complete VERSIONINFO metadata.'}
+                </li>
+                <li>
+                  {locale === 'it'
+                    ? 'Distribuzione pulita: Installer Inno Setup per-utente (MDPad-1.0.0-setup.exe, nessun privilegio admin), ZIP portatile pulito (MDPad-1.0.0-portable.zip) e SHA256SUMS.txt.'
+                    : 'Clean distribution: per-user Inno Setup installer (MDPad-1.0.0-setup.exe, no admin required), clean Portable ZIP (MDPad-1.0.0-portable.zip), and SHA256SUMS.txt.'}
+                </li>
+                <li>
+                  {locale === 'it'
+                    ? 'Zero chiamate di rete all’avvio; supporta firma Authenticode opzionale tramite secret GitHub Actions (WIN_CSC_PFX_BASE64 / WIN_CSC_PASSWORD) per eliminare anche il prompt SmartScreen.'
+                    : 'Zero startup network calls; supports optional Authenticode code signing via GitHub Actions secrets (WIN_CSC_PFX_BASE64 / WIN_CSC_PASSWORD) to eliminate SmartScreen prompts.'}
+                </li>
+              </ul>
+            </div>
+          </section>
+
           {/* Downloadable Windows 7-11 & Python CLI Kit + GitHub Actions */}
           <section className="space-y-2.5">
             <h3
@@ -331,9 +370,13 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
             <div className="grid grid-cols-1 gap-1.5 text-xs sm:grid-cols-2">
               {[
                 ['F6 / Ctrl+E', `${t.modeSourceShort} / ${t.modeSplitShort} / ${t.modePreviewShort}`],
+                ['Ctrl+Shift+E', locale === 'it' ? 'Pannello Cartella' : 'Folder Pane'],
+                ['Ctrl+G', locale === 'it' ? 'Vai alla riga' : 'Go to line'],
+                ['Ctrl+D', locale === 'it' ? 'Duplica riga' : 'Duplicate line'],
+                ['Shift+Alt+F', locale === 'it' ? 'Formatta JSON' : 'Format JSON'],
+                ['Tab / Shift+Tab', locale === 'it' ? 'Indenta / Riduci rientro righe' : 'Indent / Outdent lines'],
                 ['Ctrl+Shift+P', t.printPreviewTitle],
                 ['Ctrl+T', t.editInsertTable],
-                ['Tab', t.tablePreviewHint.split('(')[0].trim()],
                 ['Ctrl+Shift+O', t.viewOutline],
                 ['Ctrl+Space', t.editClearFormatting],
                 ['Ctrl+F / Ctrl+H', t.findRegionAria],

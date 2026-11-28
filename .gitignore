@@ -9,6 +9,9 @@ release/
 release-win/
 release-desktop/
 desktop/server-bundle.cjs
+native/target/
+native/dist/
+native/.tools/
 
 # Environment variables
 .env

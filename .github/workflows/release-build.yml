@@ -1,4 +1,4 @@
-name: Build Release (Windows Desktop Installer, Portable EXE & ZIP)
+name: Build Native Windows Release (Rust + Win32 Installer, Portable ZIP & SHA256SUMS)
 
 on:
   workflow_dispatch:
@@ -12,19 +12,19 @@ permissions:
   contents: write
 
 jobs:
-  build-windows-desktop:
-    name: Build Standalone Windows App (Setup EXE, Portable EXE & ZIP)
+  build-native-windows:
+    name: Build Native Rust+Win32 MDPad (Setup EXE, Portable ZIP & SHA256SUMS)
     runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 22
+      - name: Setup Node.js 22 (Web tests & build)
         uses: actions/setup-node@v6
         with:
           node-version: '22'
 
-      - name: Install root dependencies
+      - name: Install web dependencies & verify Web suite
         shell: pwsh
         run: |
           if (Test-Path package-lock.json) {
@@ -32,110 +32,94 @@ jobs:
           } else {
             npm install --no-audit --no-fund
           }
-
-      - name: Type-check & run unit tests
-        run: |
           npm run lint
           npm test
+          npm run build
 
-      - name: Build production frontend
-        run: npm run build
+      - name: Setup Rust MSVC toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
-      - name: Bundle embedded MarkItDown backend for Desktop app
-        run: node scripts/bundle-desktop-server.mjs
-
-      - name: Install Desktop packager dependencies
-        working-directory: desktop
-        shell: pwsh
-        run: |
-          if (Test-Path package-lock.json) {
-            npm ci
-          } else {
-            npm install --no-audit --no-fund
-          }
-
-      - name: Pre-cache winCodeSign (skip macOS symlinks on Windows)
-        shell: pwsh
-        run: |
-          $cacheDir = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0"
-          if (-not (Test-Path $cacheDir)) {
-            New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
-            $archive = "$env:TEMP\winCodeSign-2.6.0.7z"
-            Invoke-WebRequest -Uri "https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z" -OutFile $archive
-            7z x $archive "-o$cacheDir" -y "-x!darwin" | Out-Null
-          }
-
-      - name: Package Windows Installer, Portable EXE & Portable ZIP
-        working-directory: desktop
+      - name: Run native Rust + Win32 unit tests
+        working-directory: native
         shell: pwsh
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run pack:win
+          MDPAD_UPDATE_REPO: ${{ github.repository }}
+        run: cargo test
 
-      - name: Verify generated Windows packages
+      - name: Build & Package Native MDPad.exe (Inno Setup Installer + Clean Portable ZIP + SHA256SUMS)
+        shell: pwsh
+        env:
+          MDPAD_UPDATE_REPO: ${{ github.repository }}
+          WIN_CSC_PFX_BASE64: ${{ secrets.WIN_CSC_PFX_BASE64 }}
+          WIN_CSC_PASSWORD: ${{ secrets.WIN_CSC_PASSWORD }}
+        run: pwsh -File native/scripts/package.ps1
+
+      - name: Verify generated native Windows release artifacts
         shell: pwsh
         run: |
-          Get-ChildItem release-desktop -File | Format-Table Name, Length
-          if (-not (Get-ChildItem release-desktop/MDPad-Setup-*.exe -ErrorAction SilentlyContinue)) {
-            throw "MDPad-Setup-*.exe was not generated."
+          Get-ChildItem native/dist -File | Format-Table Name, Length
+          if (-not (Get-ChildItem native/dist/MDPad-*-setup.exe -ErrorAction SilentlyContinue)) {
+            throw "MDPad-*-setup.exe was not generated."
           }
-          if (-not (Get-ChildItem release-desktop/MDPad-Portable-*.exe -ErrorAction SilentlyContinue)) {
-            throw "MDPad-Portable-*.exe was not generated."
+          if (-not (Get-ChildItem native/dist/MDPad-*-portable.zip -ErrorAction SilentlyContinue)) {
+            throw "MDPad-*-portable.zip was not generated."
           }
-          if (-not (Get-ChildItem release-desktop/MDPad-Windows-*.zip -ErrorAction SilentlyContinue)) {
-            throw "MDPad-Windows-*.zip was not generated."
+          if (-not (Test-Path native/dist/SHA256SUMS.txt)) {
+            throw "SHA256SUMS.txt was not generated."
           }
 
-      - name: Upload Windows One-Click Installer (MDPad-Setup.exe)
+      - name: Upload Native Windows Installer (MDPad-setup.exe)
         uses: actions/upload-artifact@v7
         with:
-          name: MDPad-Setup-Installer-Windows
-          path: release-desktop/MDPad-Setup-*.exe
+          name: MDPad-Native-Installer-Windows
+          path: native/dist/MDPad-*-setup.exe
           retention-days: 30
 
-      - name: Upload Single-File Portable EXE (MDPad-Portable.exe)
+      - name: Upload Native Portable ZIP (MDPad-portable.zip)
         uses: actions/upload-artifact@v7
         with:
-          name: MDPad-Portable-Single-EXE-Windows
-          path: release-desktop/MDPad-Portable-*.exe
+          name: MDPad-Native-Portable-ZIP-Windows
+          path: native/dist/MDPad-*-portable.zip
           retention-days: 30
 
-      - name: Upload Standalone Portable ZIP (MDPad-Windows-x64.zip)
+      - name: Upload SHA256SUMS.txt
         uses: actions/upload-artifact@v7
         with:
-          name: MDPad-Portable-ZIP-Windows
-          path: release-desktop/MDPad-Windows-*.zip
+          name: MDPad-SHA256SUMS
+          path: native/dist/SHA256SUMS.txt
           retention-days: 30
 
   publish-github-release:
     name: Publish GitHub Release (on v* tags)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-windows-desktop]
+    needs: [build-native-windows]
     runs-on: ubuntu-latest
     steps:
-      - name: Download Windows Installer
+      - name: Download Native Windows Installer
         uses: actions/download-artifact@v8
         with:
-          name: MDPad-Setup-Installer-Windows
+          name: MDPad-Native-Installer-Windows
           path: artifacts
 
-      - name: Download Portable Single EXE
+      - name: Download Native Portable ZIP
         uses: actions/download-artifact@v8
         with:
-          name: MDPad-Portable-Single-EXE-Windows
+          name: MDPad-Native-Portable-ZIP-Windows
           path: artifacts
 
-      - name: Download Portable ZIP
+      - name: Download SHA256SUMS
         uses: actions/download-artifact@v8
         with:
-          name: MDPad-Portable-ZIP-Windows
+          name: MDPad-SHA256SUMS
           path: artifacts
 
-      - name: Create GitHub Release with standalone Windows apps
+      - name: Create GitHub Release with Native Rust+Win32 MDPad assets
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
-            artifacts/MDPad-Setup-*.exe
-            artifacts/MDPad-Portable-*.exe
-            artifacts/MDPad-Windows-*.zip
+            artifacts/MDPad-*-setup.exe
+            artifacts/MDPad-*-portable.zip
+            artifacts/SHA256SUMS.txt

@@ -84,8 +84,8 @@ export interface FolderPostItResult {
   files: FolderFileSummary[];
 }
 
-export type LineEnding = 'CRLF' | 'LF';
-export type FileEncoding = 'UTF-8' | 'UTF-8-BOM' | 'ANSI';
+export type LineEnding = 'CRLF' | 'LF' | 'CR';
+export type FileEncoding = 'UTF-8' | 'UTF-8-BOM' | 'UTF-16 LE' | 'UTF-16 BE' | 'ANSI';
 export type ViewMode = 'source' | 'split' | 'preview';
 export type AppTheme = 'system' | 'light' | 'dark' | 'high-contrast';
 export type ResolvedTheme = 'light' | 'dark' | 'high-contrast';

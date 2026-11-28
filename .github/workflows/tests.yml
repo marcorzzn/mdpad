@@ -45,3 +45,19 @@ jobs:
 
       - name: Build production bundle
         run: npm run build
+
+  native-win32-tests:
+    name: Native Rust + Win32 Unit Tests (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Rust MSVC toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Run cargo test (encoding, .LOG, JSON, frontmatter, lines, Markdown RTF)
+        working-directory: native
+        run: cargo test

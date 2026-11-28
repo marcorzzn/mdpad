@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CrossPlatformModal } from './components/CrossPlatformModal';
 import { FindReplaceBar } from './components/FindReplaceBar';
+import { FolderPane, type WorkspaceNode } from './components/FolderPane';
 import { FolderPostItModal } from './components/FolderPostItModal';
 import { FormattingBar } from './components/FormattingBar';
+import { GoToLineModal } from './components/GoToLineModal';
 import { MarkdownPreview } from './components/MarkdownPreview';
 import { MarkItDownModal } from './components/MarkItDownModal';
 import { MenuBar } from './components/MenuBar';
@@ -36,6 +38,21 @@ import {
   toggleCheckboxAtLine,
   type OutlineHeading,
 } from './lib/editor/markdownOps';
+import {
+  decodeBytes,
+  detectEncoding,
+  detectIndentUnit,
+  detectLineEnding,
+  duplicateLines,
+  formatJsonStrict,
+  formatNotepadTimestamp,
+  indentLines,
+  isJsonFilename,
+  isLogFile,
+  isOneLineJson,
+  matchBracket,
+  spacesForTab,
+} from './lib/editor/renotepadOps';
 import { I18nProvider } from './lib/i18n/I18nContext';
 import { resolveLocale, TRANSLATIONS } from './lib/i18n/translations';
 import type {
@@ -149,6 +166,7 @@ export default function App() {
 
   const [viewMode, setViewMode] = useState<ViewMode>(initialPrefs.viewMode);
   const [wordWrap, setWordWrap] = useState<boolean>(initialPrefs.wordWrap);
+  const [showFolderPane, setShowFolderPane] = useState<boolean>(false);
   const [showOutline, setShowOutline] = useState<boolean>(initialPrefs.showOutline);
   const [showStatusBar, setShowStatusBar] = useState<boolean>(initialPrefs.showStatusBar);
   const [zoom, setZoom] = useState<number>(initialPrefs.zoom);
@@ -157,6 +175,10 @@ export default function App() {
   const [aiBusy, setAiBusy] = useState<boolean>(false);
 
   const [cursorPos, setCursorPos] = useState<number>(0);
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number }>({
+    start: 0,
+    end: 0,
+  });
   const [pastedAssets, setPastedAssets] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [lastAutoSavedAt, setLastAutoSavedAt] = useState<string | null>(
@@ -171,6 +193,7 @@ export default function App() {
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [activeMatchIdx, setActiveMatchIdx] = useState(0);
 
+  const [goToLineOpen, setGoToLineOpen] = useState(false);
   const [tableOpen, setTableOpen] = useState(false);
   const [printPreviewOpen, setPrintPreviewOpen] = useState(false);
   const [folderModalOpen, setFolderModalOpen] = useState(false);
@@ -321,6 +344,7 @@ export default function App() {
     (nextValue: string, selStart: number, selEnd: number) => {
       updateActiveTab((tab) => ({ ...tab, content: nextValue }));
       setCursorPos(selStart);
+      setSelectionRange({ start: selStart, end: selEnd });
       requestAnimationFrame(() => {
         const el = textareaRef.current;
         if (el) {
@@ -337,6 +361,20 @@ export default function App() {
     () => computeDocumentStats(activeTab.content, cursorPos),
     [activeTab.content, cursorPos]
   );
+  const totalLines = useMemo(
+    () => Math.max(1, activeTab.content.split('\n').length),
+    [activeTab.content]
+  );
+  const selectedChars = Math.max(0, selectionRange.end - selectionRange.start);
+  const matchedBracketPair = useMemo(() => {
+    const pair = matchBracket(activeTab.content, cursorPos);
+    if (!pair) return null;
+    const [a, b] = pair;
+    const chA = activeTab.content[a] ?? '';
+    const chB = activeTab.content[b] ?? '';
+    const chars = a < b ? `${chA}${chB}` : `${chB}${chA}`;
+    return { chars, partnerOffset: b };
+  }, [activeTab.content, cursorPos]);
   const outline = useMemo(() => extractOutline(activeTab.content), [activeTab.content]);
   const findMatches = useMemo(
     () => (findOpen ? findWildcardMatches(activeTab.content, findQuery, caseSensitive) : []),
@@ -587,29 +625,82 @@ export default function App() {
     showNotice('Esportato file HTML pulito.');
   }, [activeTab.title, activeTab.content, showNotice]);
 
-  const handleOpenLocalFile = useCallback(async (file: File | undefined) => {
-    if (!file) return;
-    const ext = file.name.toLowerCase();
-    if (ext.endsWith('.md') || ext.endsWith('.markdown') || ext.endsWith('.txt') || ext.endsWith('.ini')) {
-      const text = await file.text();
-      const lineEnding: LineEnding = text.includes('\r\n') ? 'CRLF' : 'LF';
-      const normalized = text.replace(/\r\n/g, '\n');
-      const id = `tab-${Date.now()}`;
+  const openTextDocumentWithReNotepadRules = useCallback(
+    (
+      title: string,
+      rawText: string,
+      encoding: FileEncoding = 'UTF-8',
+      lineEnding: LineEnding = detectLineEnding(rawText),
+      filePath?: string
+    ) => {
+      // Switch to existing tab if this path/title is already open (RE:Notepad behavior)
+      const existing = tabs.find(
+        (tab) => (filePath && tab.filePath === filePath) || (!filePath && tab.title === title)
+      );
+      if (existing) {
+        setActiveTabId(existing.id);
+        setCursorPos(0);
+        setSelectionRange({ start: 0, end: 0 });
+        return;
+      }
+
+      let content = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      let savedContent = content;
+      let extraNote = '';
+
+      // RE:Notepad JSON rule: auto-format minified `.json` on open without marking dirty
+      if (isJsonFilename(title) && isOneLineJson(content)) {
+        const res = formatJsonStrict(content);
+        if (res.ok) {
+          content = res.formatted;
+          savedContent = res.formatted;
+          extraNote = locale === 'it' ? ' · JSON formattato' : ' · JSON formatted';
+        }
+      }
+
+      // Windows 10 Notepad / RE:Notepad `.LOG` diary rule: append timestamp on open
+      if (isLogFile(content)) {
+        const stamp = formatNotepadTimestamp(new Date(), locale === 'it' ? 'it-IT' : 'en-US', true);
+        content = content.endsWith('\n') ? `${content}${stamp.slice(1)}` : `${content}${stamp}`;
+        extraNote = locale === 'it' ? ' · Timestamp .LOG aggiunto' : ' · .LOG timestamp appended';
+      }
+
+      const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       setTabs((prev) => [
         ...prev,
         {
           id,
-          title: file.name,
-          content: normalized,
-          savedContent: normalized,
-          encoding: 'UTF-8',
+          title,
+          filePath,
+          content,
+          savedContent,
+          encoding,
           lineEnding,
         },
       ]);
       setActiveTabId(id);
-      showNotice(`Aperto "${file.name}"`);
+      const endPos = isLogFile(rawText) ? content.length : 0;
+      setCursorPos(endPos);
+      setSelectionRange({ start: endPos, end: endPos });
+      showNotice(`${title} (${encoding}, ${lineEnding})${extraNote}`);
+    },
+    [tabs, locale, showNotice]
+  );
+
+  const handleOpenLocalFile = useCallback(async (file: File | undefined) => {
+    if (!file) return;
+    const ext = file.name.toLowerCase();
+    const isPlain = /\.(md|markdown|txt|log|ini|cfg|conf|json|jsonl|ndjson|yaml|yml|toml|xml|csv|tsv|rs|ts|tsx|js|css|html)$/i.test(
+      ext
+    );
+    if (isPlain) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const encoding = detectEncoding(bytes);
+      const decoded = decodeBytes(bytes, encoding);
+      const lineEnding = detectLineEnding(decoded);
+      openTextDocumentWithReNotepadRules(file.name, decoded, encoding, lineEnding);
     } else {
-      // Automatically route non-text files through MarkItDown!
+      // Automatically route binary/Office/PDF files through MarkItDown!
       const form = new FormData();
       form.append('file', file);
       try {
@@ -621,7 +712,21 @@ export default function App() {
         showNotice(err instanceof Error ? err.message : 'Impossibile aprire il file.');
       }
     }
-  }, [handleOpenConverted, showNotice]);
+  }, [handleOpenConverted, openTextDocumentWithReNotepadRules, showNotice]);
+
+  const handleOpenWorkspaceNode = useCallback(
+    async (node: WorkspaceNode) => {
+      if (node.kind !== 'file') return;
+      if (node.fileObj) {
+        await handleOpenLocalFile(node.fileObj);
+        return;
+      }
+      if (typeof node.content === 'string') {
+        openTextDocumentWithReNotepadRules(node.name, node.content, 'UTF-8', 'CRLF', node.path);
+      }
+    },
+    [handleOpenLocalFile, openTextDocumentWithReNotepadRules]
+  );
 
   // Editor formatting & commands
   const cycleViewMode = useCallback(() => {
@@ -676,20 +781,68 @@ export default function App() {
   );
 
   const handleInsertDateTime = useCallback(() => {
-    const now = new Date();
-    const formatted = now.toLocaleString('it-IT', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    const formatted = formatNotepadTimestamp(new Date(), locale === 'it' ? 'it-IT' : 'en-US', false);
     const el = textareaRef.current;
     const start = el ? el.selectionStart : activeTab.content.length;
     const end = el ? el.selectionEnd : activeTab.content.length;
     const next = activeTab.content.slice(0, start) + formatted + activeTab.content.slice(end);
     setEditorTextAndSelection(next, start + formatted.length, start + formatted.length);
-  }, [activeTab.content, setEditorTextAndSelection]);
+  }, [activeTab.content, locale, setEditorTextAndSelection]);
+
+  const handleDuplicateLine = useCallback(() => {
+    const el = textareaRef.current;
+    const start = el ? el.selectionStart : cursorPos;
+    const end = el ? el.selectionEnd : cursorPos;
+    const res = duplicateLines(activeTab.content, start, end);
+    setEditorTextAndSelection(res.value, res.selectionStart, res.selectionEnd);
+  }, [activeTab.content, cursorPos, setEditorTextAndSelection]);
+
+  const handleFormatJson = useCallback(() => {
+    const res = formatJsonStrict(activeTab.content);
+    if (res.ok) {
+      setEditorTextAndSelection(res.formatted, 0, 0);
+      showNotice(locale === 'it' ? 'JSON formattato (indentazione 2 spazi).' : 'JSON formatted (2-space indent).');
+    } else {
+      showNotice(
+        locale === 'it'
+          ? `JSON non valido alla riga ${res.line}, colonna ${res.col}.`
+          : `Invalid JSON at line ${res.line}, column ${res.col}.`
+      );
+    }
+  }, [activeTab.content, locale, setEditorTextAndSelection, showNotice]);
+
+  const handleJumpToOffset = useCallback((offset: number) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const safe = Math.max(0, Math.min(offset, activeTab.content.length));
+    el.focus();
+    el.setSelectionRange(safe, safe);
+    setCursorPos(safe);
+    setSelectionRange({ start: safe, end: safe });
+  }, [activeTab.content.length]);
+
+  const handleGoToLine = useCallback(
+    (lineNumber: number) => {
+      const lines = activeTab.content.split('\n');
+      const clamped = Math.max(1, Math.min(lineNumber, lines.length));
+      let offset = 0;
+      for (let i = 0; i < clamped - 1; i++) {
+        offset += lines[i].length + 1;
+      }
+      if (viewMode === 'preview') setViewMode('split');
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(offset, offset);
+        setCursorPos(offset);
+        setSelectionRange({ start: offset, end: offset });
+        const ratio = (clamped - 1) / Math.max(1, lines.length);
+        el.scrollTop = ratio * el.scrollHeight;
+      });
+    },
+    [activeTab.content, viewMode]
+  );
 
   const handleToggleCheckboxLine = useCallback(
     (lineNumber: number) => {
@@ -813,12 +966,24 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
 
-      if (e.key === 'F6' || (mod && e.key.toLowerCase() === 'e')) {
+      if (e.key === 'F6' || (mod && !e.shiftKey && e.key.toLowerCase() === 'e')) {
         e.preventDefault();
         cycleViewMode();
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setShowFolderPane((v) => !v);
       } else if (e.key === 'F5') {
         e.preventDefault();
         handleInsertDateTime();
+      } else if (mod && e.key.toLowerCase() === 'g') {
+        e.preventDefault();
+        setGoToLineOpen(true);
+      } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        handleDuplicateLine();
+      } else if (e.shiftKey && e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        handleFormatJson();
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void handleSaveMd();
@@ -851,7 +1016,7 @@ export default function App() {
       } else if (aiEnabled && mod && e.key.toLowerCase() === 'q') {
         e.preventDefault();
         void handleRunAiAssist('write');
-      } else if (aiEnabled && mod && e.key.toLowerCase() === 'd') {
+      } else if (aiEnabled && mod && e.shiftKey && e.key.toLowerCase() === 'd') {
         e.preventDefault();
         void handleRunAiAssist('rewrite');
       } else if (aiEnabled && mod && e.key.toLowerCase() === 'm') {
@@ -865,6 +1030,8 @@ export default function App() {
   }, [
     cycleViewMode,
     handleInsertDateTime,
+    handleDuplicateLine,
+    handleFormatJson,
     handleSaveMd,
     handleNewTab,
     triggerOpenFile,
@@ -873,7 +1040,7 @@ export default function App() {
     handleRunAiAssist,
   ]);
 
-  // Textarea special keys: Smart Enter, Table Tab navigation, Ctrl+Wheel Zoom
+  // Textarea special keys: Smart Enter, Table Tab navigation, RE:Notepad smart Tab/Shift+Tab
   const handleEditorKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     const el = e.currentTarget;
 
@@ -884,16 +1051,30 @@ export default function App() {
         setEditorTextAndSelection(res.value, res.selectionStart, res.selectionEnd);
       }
     } else if (e.key === 'Tab') {
-      const res = handleTableTab(activeTab.content, el.selectionStart, e.shiftKey);
-      if (res) {
+      const tableRes = handleTableTab(activeTab.content, el.selectionStart, e.shiftKey);
+      if (tableRes) {
         e.preventDefault();
-        setEditorTextAndSelection(res.value, res.selectionStart, res.selectionEnd);
+        setEditorTextAndSelection(tableRes.value, tableRes.selectionStart, tableRes.selectionEnd);
+        return;
+      }
+
+      e.preventDefault();
+      const start = el.selectionStart;
+      const end = el.selectionEnd;
+      const unit = detectIndentUnit(activeTab.content);
+
+      if (e.shiftKey || start !== end) {
+        const res = indentLines(activeTab.content, start, end, unit, e.shiftKey);
+        if (res) {
+          setEditorTextAndSelection(res.value, res.selectionStart, res.selectionEnd);
+        }
       } else {
-        e.preventDefault();
-        const start = el.selectionStart;
-        const end = el.selectionEnd;
-        const next = activeTab.content.slice(0, start) + '  ' + activeTab.content.slice(end);
-        setEditorTextAndSelection(next, start + 2, start + 2);
+        const ls = activeTab.content.lastIndexOf('\n', start - 1) + 1;
+        const col = start - ls;
+        const spacesCount = spacesForTab(unit, col);
+        const ins = spacesCount !== null ? ' '.repeat(spacesCount) : '\t';
+        const next = activeTab.content.slice(0, start) + ins + activeTab.content.slice(end);
+        setEditorTextAndSelection(next, start + ins.length, start + ins.length);
       }
     }
   };
@@ -1021,10 +1202,11 @@ export default function App() {
           onNewTab={handleNewTab}
         />
 
-        {/* Row 2: Classic Windows Menu Bar + View Switch + Night Mode + Post-it Cartelle CTA */}
+        {/* Row 2: Classic Windows Menu Bar + Folder Pane + View Switch + Night Mode + Post-it Cartelle CTA */}
         <MenuBar
           viewMode={viewMode}
           wordWrap={wordWrap}
+          showFolderPane={showFolderPane}
           showOutline={showOutline}
           showStatusBar={showStatusBar}
           theme={theme}
@@ -1046,6 +1228,9 @@ export default function App() {
               setFindOpen(true);
               setShowReplace(withReplace);
             },
+            onOpenGoToLine: () => setGoToLineOpen(true),
+            onDuplicateLine: handleDuplicateLine,
+            onFormatJson: handleFormatJson,
             onClearFormatting: handleClearFormatting,
             onOpenTableDialog: () => setTableOpen(true),
             onInsertDateTime: handleInsertDateTime,
@@ -1053,6 +1238,7 @@ export default function App() {
             onChangeEncoding: (enc) => updateActiveTab((tab) => ({ ...tab, encoding: enc })),
             onChangeLineEnding: (le) => updateActiveTab((tab) => ({ ...tab, lineEnding: le })),
             onChangeViewMode: setViewMode,
+            onToggleFolderPane: () => setShowFolderPane((f) => !f),
             onToggleOutline: () => setShowOutline((o) => !o),
             onToggleStatusBar: () => setShowStatusBar((s) => !s),
             onChangeTheme: setTheme,
@@ -1092,6 +1278,15 @@ export default function App() {
             printPreviewOpen ? 'no-print' : ''
           }`}
         >
+          {showFolderPane && (
+            <FolderPane
+              activeFileTitle={activeTab.title}
+              onOpenWorkspaceNode={(node) => void handleOpenWorkspaceNode(node)}
+              onOpenFolderPostIt={() => setFolderModalOpen(true)}
+              onClose={() => setShowFolderPane(false)}
+            />
+          )}
+
           {showOutline && (
             <OutlinePanel
               headings={outline}
@@ -1144,11 +1339,33 @@ export default function App() {
                   onChange={(e) => {
                     const val = e.target.value;
                     setCursorPos(e.target.selectionStart);
+                    setSelectionRange({
+                      start: e.target.selectionStart,
+                      end: e.target.selectionEnd,
+                    });
                     updateActiveTab((tab) => ({ ...tab, content: val }));
                   }}
-                  onSelect={(e) => setCursorPos(e.currentTarget.selectionStart)}
-                  onKeyUp={(e) => setCursorPos(e.currentTarget.selectionStart)}
-                  onClick={(e) => setCursorPos(e.currentTarget.selectionStart)}
+                  onSelect={(e) => {
+                    setCursorPos(e.currentTarget.selectionStart);
+                    setSelectionRange({
+                      start: e.currentTarget.selectionStart,
+                      end: e.currentTarget.selectionEnd,
+                    });
+                  }}
+                  onKeyUp={(e) => {
+                    setCursorPos(e.currentTarget.selectionStart);
+                    setSelectionRange({
+                      start: e.currentTarget.selectionStart,
+                      end: e.currentTarget.selectionEnd,
+                    });
+                  }}
+                  onClick={(e) => {
+                    setCursorPos(e.currentTarget.selectionStart);
+                    setSelectionRange({
+                      start: e.currentTarget.selectionStart,
+                      end: e.currentTarget.selectionEnd,
+                    });
+                  }}
                   onKeyDown={handleEditorKeyDown}
                   onPaste={handleEditorPaste}
                   onScroll={handleEditorScroll}
@@ -1204,11 +1421,14 @@ export default function App() {
         {showStatusBar && (
           <StatusBar
             stats={stats}
+            selectedChars={selectedChars}
+            matchedBracketPair={matchedBracketPair}
             encoding={activeTab.encoding}
             lineEnding={activeTab.lineEnding}
             zoom={zoom}
             readOnly={activeTab.readOnly}
             lastAutoSavedAt={lastAutoSavedAt}
+            onJumpToOffset={handleJumpToOffset}
             onChangeEncoding={(enc) => updateActiveTab((tab) => ({ ...tab, encoding: enc }))}
             onChangeLineEnding={(le) => updateActiveTab((tab) => ({ ...tab, lineEnding: le }))}
             onChangeZoom={setZoom}
@@ -1216,6 +1436,14 @@ export default function App() {
         )}
 
         {/* Dialogs & Workbenches */}
+        <GoToLineModal
+          open={goToLineOpen}
+          currentLine={stats.line}
+          maxLine={totalLines}
+          onJump={handleGoToLine}
+          onClose={() => setGoToLineOpen(false)}
+        />
+
         <TableDialog
           open={tableOpen}
           onClose={() => setTableOpen(false)}

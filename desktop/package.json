@@ -9,7 +9,7 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "pack:win": "electron-builder --win --x64 --config electron-builder.json"
+    "pack:win": "electron-builder --win --x64 --config electron-builder.json --publish never"
   },
   "devDependencies": {
     "electron": "^35.1.5",

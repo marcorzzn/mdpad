@@ -42,18 +42,7 @@ jobs:
         run: npm run build
 
       - name: Bundle embedded MarkItDown backend for Desktop app
-        shell: pwsh
-        run: |
-          npx --yes esbuild desktop/server-entry.ts `
-            --bundle `
-            --platform=node `
-            --format=cjs `
-            --target=node22 `
-            --external:vite `
-            --external:canvas `
-            --define:process.env.MDPAD_EMBEDDED='"1"' `
-            --define:import.meta.url='"file:///mdpad-server.cjs"' `
-            --outfile=desktop/server-bundle.cjs
+        run: node scripts/bundle-desktop-server.mjs
 
       - name: Install Desktop packager dependencies
         working-directory: desktop
@@ -63,6 +52,17 @@ jobs:
             npm ci
           } else {
             npm install --no-audit --no-fund
+          }
+
+      - name: Pre-cache winCodeSign (skip macOS symlinks on Windows)
+        shell: pwsh
+        run: |
+          $cacheDir = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0"
+          if (-not (Test-Path $cacheDir)) {
+            New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+            $archive = "$env:TEMP\winCodeSign-2.6.0.7z"
+            Invoke-WebRequest -Uri "https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z" -OutFile $archive
+            7z x $archive "-o$cacheDir" -y "-x!darwin" | Out-Null
           }
 
       - name: Package Windows Installer, Portable EXE & Portable ZIP

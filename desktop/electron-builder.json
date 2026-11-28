@@ -3,7 +3,7 @@
   "appId": "io.github.mdpad.editor",
   "productName": "MDPad",
   "asar": true,
-  "compression": "maximum",
+  "compression": "normal",
   "directories": {
     "output": "../release-desktop"
   },
@@ -28,22 +28,15 @@
   ],
   "fileAssociations": [
     {
-      "ext": "md",
+      "ext": ["md", "markdown"],
       "name": "Markdown Document",
       "description": "Documento Markdown (MDPad)",
-      "icon": "assets/icon.ico",
-      "role": "Editor"
-    },
-    {
-      "ext": "markdown",
-      "name": "Markdown Document",
-      "description": "Documento Markdown (MDPad)",
-      "icon": "assets/icon.ico",
-      "role": "Editor"
+      "icon": "assets/icon.ico"
     }
   ],
   "win": {
     "icon": "assets/icon.ico",
+    "artifactName": "MDPad-Windows-${version}-x64.${ext}",
     "target": [
       {
         "target": "nsis",
@@ -62,7 +55,6 @@
   "nsis": {
     "oneClick": true,
     "perMachine": false,
-    "allowToChangeInstallationDirectory": false,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
     "shortcutName": "MDPad",
@@ -71,8 +63,5 @@
   },
   "portable": {
     "artifactName": "MDPad-Portable-${version}-x64.exe"
-  },
-  "zip": {
-    "artifactName": "MDPad-Windows-${version}-x64.zip"
   }
 }

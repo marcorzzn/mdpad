@@ -10,8 +10,8 @@ $ErrorActionPreference = 'Stop'
 $TauriRoot = Split-Path -Parent $PSScriptRoot
 $RepoRoot = Split-Path -Parent $TauriRoot
 $InnoVersion = '7.1.0'
-$InnoUrl = "https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-$InnoVersion.exe"
-$InnoSha256 = 'B99A735E92E5566B4126B31C234CC33B53B30B7334895D4D2F0221039660B9D6'
+$InnoUrl = "https://github.com/jrsoftware/issrc/releases/download/is-7_1_0/innosetup-$InnoVersion-x64.exe"
+$InnoSha256 = '0362A383ED217D4C4239B5933866DD96D3EB2102737DA92F80F6057A4B40DF2F'
 $ToolsDir = Join-Path $TauriRoot '.tools'
 $InnoDir = Join-Path $ToolsDir 'inno'
 $Iscc = Join-Path $InnoDir 'ISCC.exe'
@@ -57,9 +57,9 @@ function Invoke-OptionalSign([string]$TargetPath) {
 
 if (-not (Test-Path $Iscc)) {
   New-Item -ItemType Directory -Force $ToolsDir | Out-Null
-  $installer = Join-Path $ToolsDir "innosetup-$InnoVersion.exe"
+  $installer = Join-Path $ToolsDir "innosetup-$InnoVersion-x64.exe"
   if (-not (Test-Path $installer)) {
-    Write-Host "Downloading Inno Setup $InnoVersion..."
+    Write-Host "Downloading Inno Setup $InnoVersion (x64)..."
     Invoke-WebRequest -Uri $InnoUrl -OutFile $installer
   }
   $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash
@@ -67,10 +67,10 @@ if (-not (Test-Path $Iscc)) {
     Remove-Item $installer -Force
     throw "Inno Setup SHA256 mismatch: expected $InnoSha256, got $hash"
   }
-  Write-Host "Installing Inno Setup $InnoVersion locally..."
-  Start-Process -FilePath $installer -ArgumentList "/CURRENTUSER /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=`"$InnoDir`"" -Wait
-  if (-not (Test-Path $Iscc)) {
-    throw "ISCC.exe not found at $Iscc after installation."
+  Write-Host "Extracting Inno Setup $InnoVersion locally in portable mode..."
+  $proc = Start-Process -FilePath $installer -ArgumentList '/PORTABLE=1', '/VERYSILENT', '/SUPPRESSMSGBOXES', '/CURRENTUSER', '/NORESTART', "/DIR=$InnoDir" -PassThru -Wait
+  if ($proc.ExitCode -ne 0 -or -not (Test-Path $Iscc)) {
+    throw "Inno Setup portable extraction failed (exit code $($proc.ExitCode)); ISCC.exe not found at $Iscc."
   }
 }
 

@@ -33,15 +33,15 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "CompanyName", "MDPad Contributors"
+      VALUE "CompanyName", "Marco Razzano"
       VALUE "FileDescription", "MDPad - Native Windows Markdown Notepad"
       VALUE "FileVersion", "{version}"
       VALUE "InternalName", "MDPad"
-      VALUE "LegalCopyright", "MIT License - Built on RE:Notepad architecture"
+      VALUE "LegalCopyright", "Copyright (c) 2026 Marco Razzano - MIT License"
       VALUE "OriginalFilename", "MDPad.exe"
       VALUE "ProductName", "MDPad"
       VALUE "ProductVersion", "{version}"
-      VALUE "Comments", "Native Rust + Win32 Notepad & Markdown editor with zero telemetry."
+      VALUE "Comments", "MDPad by Marco Razzano - Native Rust + Win32 Notepad & Markdown editor."
     END
   END
   BLOCK "VarFileInfo"

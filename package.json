@@ -1,6 +1,8 @@
 {
-  "name": "markitdown-web",
+  "name": "mdpad",
   "version": "1.0.0",
+  "author": "Marco Razzano",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +11,7 @@
     "build:portable": "npm run build && node scripts/build-portable.mjs",
     "start": "node server.ts",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/lib/markitdown/engine.test.ts src/lib/editor/markdownOps.test.ts src/lib/editor/renotepadOps.test.ts src/lib/editor/autosave.test.ts src/lib/i18n/translations.test.ts desktop/fileArgs.test.ts"
+    "test": "tsx --test src/lib/markitdown/engine.test.ts src/lib/markitdown/clientEngine.test.ts src/lib/fs/nativeFs.test.ts src/lib/editor/markdownOps.test.ts src/lib/editor/renotepadOps.test.ts src/lib/editor/autosave.test.ts src/lib/i18n/translations.test.ts desktop/fileArgs.test.ts"
   },
   "dependencies": {
     "@google/genai": "^3.6.1",
@@ -42,6 +44,7 @@
     "tailwindcss": "^4.0.9",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "vite-plugin-pwa": "^2.0.0"
   }
 }

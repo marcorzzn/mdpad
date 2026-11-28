@@ -11,6 +11,11 @@ import {
   StickyNote,
   X,
 } from 'lucide-react';
+import {
+  detectRuntimePlatform,
+  openNativeFolder,
+  type NativeFolderContext,
+} from '../lib/fs/nativeFs';
 import { useI18n } from '../lib/i18n/I18nContext';
 
 export interface WorkspaceNode {
@@ -19,6 +24,9 @@ export interface WorkspaceNode {
   kind: 'dir' | 'file';
   content?: string;
   fileObj?: File;
+  nativePath?: string;
+  androidUri?: string;
+  browserHandle?: FileSystemFileHandle;
   children?: WorkspaceNode[];
 }
 
@@ -33,20 +41,21 @@ export const DEMO_WORKSPACE_TREE: WorkspaceNode = {
       kind: 'file',
       content: `---
 cartella: Progetto_MDPad
-motore: Rust + Win32 (RE:Notepad)
-stato: Pronto per distribuzione
+autore: Marco Razzano
+piattaforme: Windows, macOS, Linux, Android, PWA
+stato: Pronto per distribuzione Open Source
 ---
 
-# 📌 Post-it Cartella: Progetto_MDPad
+# Post-it Cartella: Progetto_MDPad
 
 > [!NOTE]
-> Questa cartella contiene i documenti principali del progetto, la configurazione JSON e il diario operativo \`.LOG\`.
+> Questa cartella contiene i documenti principali di **MDPad** di Marco Razzano, la configurazione JSON e il diario operativo \`.LOG\`.
 
 ## Contenuto rapido
-- **README.md**: Specifiche architetturali native (eseguibile singolo ~700 KB)
+- **README.md**: Architettura cross-platform (Desktop nativo Rust + WebView2, Android APK predefinito per \`.md\`, PWA offline)
 - **config.json**: Configurazione minificata (si formatta automaticamente all'apertura!)
 - **diary.log**: Diario Notepad classico con timestamp automatico ad ogni apertura
-- **docs/architettura.md**: Guida anti-falso positivo Antivirus e packaging Inno Setup
+- **docs/architettura.md**: Guida anti-falso positivo Antivirus e certificazione Open Source SignPath
 `,
     },
     {
@@ -54,23 +63,24 @@ stato: Pronto per distribuzione
       name: 'README.md',
       kind: 'file',
       content: `---
-title: MDPad Native Win32
+title: MDPad — Blocco Note Markdown
+author: Marco Razzano
 version: 1.0.0
-architecture: Rust + Pure Win32/GDI
-tags: [notepad, markdown, win32, zero-telemetry]
+license: MIT
+platforms: [Windows, macOS, Linux, Android, PWA]
 ---
 
-# MDPad — Blocco Note Markdown Nativo
+# MDPad — Blocco Note Markdown (di Marco Razzano)
 
 > [!TIP]
 > Premi **Ctrl+Shift+E** per mostrare o nascondere il Pannello Cartella, **Ctrl+D** per duplicare una riga, **Ctrl+G** per andare a una riga specifica e **Shift+Alt+F** per formattare JSON.
 
-## Logiche integrate da RE:Notepad
-1. **Rilevamento codifica Windows 10** (UTF-8, UTF-8 BOM, UTF-16 LE/BE, ANSI) con protezione *Bush hid the facts*.
-2. **Terminatori di riga preservati** (CRLF, LF, CR).
-3. **File \`.LOG\`** con timestamp automatico all'apertura.
-4. **Tab / Shift+Tab intelligente** con rilevamento automatico dell'indentazione e **matching parentesi** \`() [] {}\`.
-5. **Eseguibile nativo Rust + Win32** (~700 KB) con manifest \`asInvoker\`, \`VERSIONINFO\`, installer **Inno Setup** per-utente e **ZIP portatile pulito** + \`SHA256SUMS.txt\`.
+## Funzionalità complete su tutti i sistemi operativi
+1. **Navigazione File System nativa**: Apri e salva file e cartelle reali su Windows, macOS, Linux, Android (Storage Access Framework) e browser moderni.
+2. **Motore MarkItDown 100% offline**: Converte DOCX, XLSX, PPTX, PDF, HTML, EPUB, RSS, CSV, IPYNB e ZIP anche senza server locale.
+3. **Post-it per cartelle**: Genera e salva direttamente \`_POST-IT.md\`, \`desktop.ini\` e \`.directory\` nella cartella selezionata.
+4. **App Android dedicata**: Registrata come editor predefinito per aprire, modificare e creare file \`.md\`.
+5. **Logiche RE:Notepad**: 5 codifiche Windows, \`CRLF/LF/CR\`, diario \`.LOG\`, JSON auto-format, YAML Front Matter e Alert GitHub.
 `,
     },
     {
@@ -78,7 +88,7 @@ tags: [notepad, markdown, win32, zero-telemetry]
       name: 'config.json',
       kind: 'file',
       content:
-        '{"app":"MDPad","engine":"rust-win32","darkByDefault":true,"autoFormatMinifiedJson":true,"encodings":["UTF-8","UTF-8-BOM","UTF-16 LE","UTF-16 BE","ANSI"],"telemetry":false}',
+        '{"app":"MDPad","author":"Marco Razzano","platforms":["windows","macos","linux","android","pwa"],"autoFormatMinifiedJson":true,"encodings":["UTF-8","UTF-8-BOM","UTF-16 LE","UTF-16 BE","ANSI"],"telemetry":false}',
     },
     {
       path: 'Progetto_MDPad/diary.log',
@@ -86,7 +96,7 @@ tags: [notepad, markdown, win32, zero-telemetry]
       kind: 'file',
       content: `.LOG
 09:15 28/11/2026
-Architettura nativa Rust + Win32 configurata secondo RE:Notepad.
+MDPad di Marco Razzano configurato per Windows, macOS, Linux e Android con MarkItDown offline.
 `,
     },
     {
@@ -99,21 +109,22 @@ Architettura nativa Rust + Win32 configurata secondo RE:Notepad.
           name: 'architettura.md',
           kind: 'file',
           content: `---
-documento: Sicurezza e Packaging Antivirus-Friendly
-target: Windows 10 / 11 x64
-installer: Inno Setup 7 (per-utente)
+documento: Sicurezza, Antivirus & Certificazione Open Source
+autore: Marco Razzano
+target: Windows, macOS, Linux, Android
+certificazione: SignPath Foundation (gratuito OSS)
 ---
 
-# Perché MDPad Nativo evita i blocchi Antivirus
+# Perché MDPad evita i blocchi Antivirus ed è certificabile gratis (Open Source)
 
 > [!IMPORTANT]
 > Gli eseguibili portatili auto-estraenti (come NSIS portable di Electron) scompattano file in \`%TEMP%\` ad ogni avvio e avviano un server locale: è il principale fattore di falsi positivi euristici sugli antivirus.
 
-## Scelte tecniche adottate (stile RE:Notepad)
-- **Binario nativo puro Rust + Win32 MSVC** (\`MDPad.exe\`, ~700 KB), compilato senza packer (no UPX) né estrattori temporanei.
-- **Manifest Windows completo** (\`asInvoker\`, \`PerMonitorV2\`, \`Common-Controls 6.0\`) e risorsa \`VERSIONINFO\` completa.
-- **Zero chiamate di rete all'avvio** e **zero server locali**.
-- **Distribuzione trasparente**: Installer **Inno Setup** per-utente (\`MDPad-1.0.0-setup.exe\`), **ZIP portatile pulito** (\`MDPad-1.0.0-portable.zip\`), checksum **\`SHA256SUMS.txt\`** e supporto opzionale alla firma **Authenticode** via GitHub Actions.
+## Scelte tecniche adottate
+- **Desktop Nativo Rust + WebView di sistema (Tauri v2)** con tutta l'interfaccia MDPad completa: nessun Electron, nessun Node.js, nessun server locale.
+- **Installer Inno Setup per-utente** (\`MDPad-1.0.0-setup.exe\`) con autore **Marco Razzano**, **ZIP portatile pulito** e **\`SHA256SUMS.txt\`**.
+- **Versione Android nativa (APK)** con Intent Filter per diventare app predefinita per \`.md\` e accesso diretto alle cartelle via Storage Access Framework.
+- **Certificazione gratuita Open Source**: integrazione pronta per **SignPath Foundation** (\`SIGNPATH_API_TOKEN\`) o certificato Authenticode / Azure Trusted Signing.
 `,
         },
       ],
@@ -143,7 +154,9 @@ function buildTreeFromFileList(files: FileList): WorkspaceNode | null {
       const isLast = p === parts.length - 1;
       const nodePath = parts.slice(0, p + 1).join('/');
       if (!current.children) current.children = [];
-      let child = current.children.find((c) => c.name === part && c.kind === (isLast ? 'file' : 'dir'));
+      let child = current.children.find(
+        (c) => c.name === part && c.kind === (isLast ? 'file' : 'dir')
+      );
       if (!child) {
         child = isLast
           ? { path: nodePath, name: part, kind: 'file', fileObj: f }
@@ -168,6 +181,8 @@ function buildTreeFromFileList(files: FileList): WorkspaceNode | null {
 
 interface FolderPaneProps {
   activeFileTitle: string;
+  activeFolder: NativeFolderContext | null;
+  onFolderChange: (folder: NativeFolderContext | null) => void;
   onOpenWorkspaceNode: (node: WorkspaceNode) => void;
   onOpenFolderPostIt: () => void;
   onClose: () => void;
@@ -175,28 +190,60 @@ interface FolderPaneProps {
 
 export const FolderPane: React.FC<FolderPaneProps> = ({
   activeFileTitle,
+  activeFolder,
+  onFolderChange,
   onOpenWorkspaceNode,
   onOpenFolderPostIt,
   onClose,
 }) => {
   const { locale } = useI18n();
-  const [tree, setTree] = useState<WorkspaceNode>(DEMO_WORKSPACE_TREE);
+  const [fallbackTree, setFallbackTree] = useState<WorkspaceNode>(DEMO_WORKSPACE_TREE);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Progetto_MDPad: true,
     'Progetto_MDPad/docs': true,
   });
   const folderInputRef = useRef<HTMLInputElement | null>(null);
 
+  const tree = activeFolder?.tree ?? fallbackTree;
   const isIt = locale === 'it';
   const labels = useMemo(
     () => ({
       title: isIt ? 'Pannello Cartella' : 'Folder Pane',
-      openLocal: isIt ? 'Apri cartella...' : 'Open folder...',
-      postIt: isIt ? 'Post-it Cartella' : 'Folder Post-it',
+      openLocal: isIt ? 'Apri cartella dal dispositivo…' : 'Open device folder…',
+      postIt: activeFolder
+        ? isIt
+          ? `Annota "${activeFolder.folderName}"`
+          : `Annotate "${activeFolder.folderName}"`
+        : isIt
+          ? 'Post-it Cartella'
+          : 'Folder Post-it',
       close: isIt ? 'Chiudi pannello cartella' : 'Close folder pane',
+      nativeHint:
+        activeFolder && activeFolder.platform !== 'browser-fallback'
+          ? isIt
+            ? 'Accesso filesystem nativo attivo'
+            : 'Native filesystem access active'
+          : null,
     }),
-    [isIt]
+    [isIt, activeFolder]
   );
+
+  const handleOpenFolderClick = async () => {
+    const platform = detectRuntimePlatform();
+    if (platform !== 'browser-fallback') {
+      const picked = await openNativeFolder();
+      if (picked) {
+        onFolderChange(picked);
+        setExpanded({ [picked.tree.path]: true });
+        return;
+      }
+      // On Tauri or Android, null means the user cancelled the native dialog
+      if (platform === 'tauri' || platform === 'android') {
+        return;
+      }
+    }
+    folderInputRef.current?.click();
+  };
 
   const toggleDir = (dirPath: string) => {
     setExpanded((prev) => ({ ...prev, [dirPath]: !prev[dirPath] }));
@@ -277,7 +324,12 @@ export const FolderPane: React.FC<FolderPaneProps> = ({
           if (e.target.files && e.target.files.length > 0) {
             const built = buildTreeFromFileList(e.target.files);
             if (built) {
-              setTree(built);
+              setFallbackTree(built);
+              onFolderChange({
+                platform: 'browser-fallback',
+                folderName: built.name,
+                tree: built,
+              });
               setExpanded({ [built.path]: true });
             }
           }
@@ -296,7 +348,7 @@ export const FolderPane: React.FC<FolderPaneProps> = ({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            onClick={() => folderInputRef.current?.click()}
+            onClick={() => void handleOpenFolderClick()}
             title={labels.openLocal}
             aria-label={labels.openLocal}
             className="rounded p-1 hover:bg-black/5 dark:hover:bg-white/10"
@@ -314,12 +366,22 @@ export const FolderPane: React.FC<FolderPaneProps> = ({
         </div>
       </div>
 
+      {labels.nativeHint && (
+        <div
+          className="border-b px-3 py-1 text-[10px]"
+          style={{
+            borderColor: 'var(--md-border)',
+            color: 'var(--md-accent)',
+            backgroundColor: 'var(--md-accent-soft)',
+          }}
+        >
+          {labels.nativeHint}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-1.5">{renderNode(tree, 0)}</div>
 
-      <div
-        className="border-t p-2"
-        style={{ borderColor: 'var(--md-border)' }}
-      >
+      <div className="border-t p-2" style={{ borderColor: 'var(--md-border)' }}>
         <button
           type="button"
           onClick={onOpenFolderPostIt}
@@ -331,7 +393,7 @@ export const FolderPane: React.FC<FolderPaneProps> = ({
           }}
         >
           <StickyNote className="h-3.5 w-3.5 text-amber-500" />
-          <span>{labels.postIt}</span>
+          <span className="truncate">{labels.postIt}</span>
         </button>
       </div>
     </aside>

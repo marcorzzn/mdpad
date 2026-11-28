@@ -1,5 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { FileUp, Globe, Play, X } from 'lucide-react';
+import {
+  CLIENT_CONVERTERS_METADATA,
+  convertBytesClientSide,
+} from '../lib/markitdown/clientEngine';
 import type { ConversionResponse, ConverterMetadata } from '../lib/markitdown/types';
 
 interface SampleItem {
@@ -35,7 +39,7 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const [samples, setSamples] = useState<SampleItem[]>([]);
-  const [converters, setConverters] = useState<ConverterMetadata[]>([]);
+  const [converters, setConverters] = useState<ConverterMetadata[]>(CLIENT_CONVERTERS_METADATA);
   const [converterFilter, setConverterFilter] = useState('');
 
   const [mcpUri, setMcpUri] = useState(
@@ -46,13 +50,17 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
   useEffect(() => {
     if (!open) return;
     void fetch('/api/samples')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setSamples(Array.isArray(d.samples) ? d.samples : []))
-      .catch(() => {});
+      .catch(() => setSamples([]));
     void fetch('/api/converters')
-      .then((r) => r.json())
-      .then((d) => setConverters(Array.isArray(d.converters) ? d.converters : []))
-      .catch(() => {});
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((d) => {
+        if (Array.isArray(d.converters) && d.converters.length > 0) {
+          setConverters(d.converters);
+        }
+      })
+      .catch(() => setConverters(CLIENT_CONVERTERS_METADATA));
   }, [open]);
 
   if (!open) return null;
@@ -62,14 +70,23 @@ export const MarkItDownModal: React.FC<MarkItDownModalProps> = ({
     setBusy(true);
     setError(null);
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('keepDataUris', String(keepDataUris));
-      const resp = await fetch('/api/convert/file', { method: 'POST', body: form });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Conversione file fallita.');
-      onOpenConverted(data as ConversionResponse);
-      onClose();
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('keepDataUris', String(keepDataUris));
+        const resp = await fetch('/api/convert/file', { method: 'POST', body: form });
+        if (!resp.ok) throw new Error('Server API non disponibile');
+        const data = await resp.json();
+        onOpenConverted(data as ConversionResponse);
+        onClose();
+        return;
+      } catch {
+        // Offline client-side MarkItDown conversion (Desktop, Android APK, PWA)
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const localRes = await convertBytesClientSide(bytes, file.name, { keepDataUris });
+        onOpenConverted(localRes);
+        onClose();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore conversione file.');
     } finally {

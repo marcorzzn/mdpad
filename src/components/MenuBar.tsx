@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { FolderOpen, Moon, PanelLeft, Sun } from 'lucide-react';
 import { useI18n } from '../lib/i18n/I18nContext';
 import { SUPPORTED_LOCALES } from '../lib/i18n/translations';
+import { PWAInstallButton } from './PWAInstallButton';
 import type {
   AppTheme,
   FileEncoding,
@@ -355,6 +356,8 @@ export const MenuBar: React.FC<MenuBarProps> = ({
         >
           {isDarkActive ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
         </button>
+
+        <PWAInstallButton compact />
 
         <button
           type="button"

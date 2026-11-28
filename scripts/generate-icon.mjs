@@ -121,63 +121,79 @@ function drawLineSegment(buf, size, x0, y0, x1, y1, thickness, color) {
   }
 }
 
-function renderMdPadIcon(size) {
+function renderMdPadIcon(size, { maskable = false } = {}) {
   const buf = Buffer.alloc(size * size * 4);
-  const s = size / 256;
-
-  // Soft drop shadow
-  drawRoundedRect(buf, size, 32 * s, 26 * s, 224 * s, 238 * s, 28 * s, [15, 23, 42, 42]);
-
-  // Crisp white Windows 11 Notepad page
-  drawRoundedRect(buf, size, 30 * s, 22 * s, 226 * s, 232 * s, 26 * s, [248, 250, 252, 255]);
-
-  // Subtle 1px slate border
-  drawRoundedRect(buf, size, 30 * s, 22 * s, 226 * s, 232 * s, 26 * s, [203, 213, 225, 95]);
-  drawRoundedRect(buf, size, 33 * s, 25 * s, 223 * s, 229 * s, 23 * s, [255, 255, 255, 255]);
-
-  // Cobalt Windows Notepad header binding strip (rounded top, flat bottom)
-  drawRoundedRect(buf, size, 30 * s, 22 * s, 226 * s, 80 * s, 24 * s, [11, 92, 171, 255]);
-  drawRoundedRect(buf, size, 30 * s, 54 * s, 226 * s, 82 * s, 0, [11, 92, 171, 255]);
-
-  // Subtle top highlight on binding strip
-  drawRoundedRect(buf, size, 34 * s, 26 * s, 222 * s, 46 * s, 18 * s, [37, 131, 219, 120]);
-
-  // Spiral binding notches (clean minimalist)
-  for (let i = 0; i < 4; i++) {
-    const cx = (66 + i * 41) * s;
-    drawRoundedRect(buf, size, cx - 7 * s, 12 * s, cx + 7 * s, 40 * s, 7 * s, [15, 62, 117, 255]);
-    drawRoundedRect(buf, size, cx - 4 * s, 14 * s, cx + 4 * s, 36 * s, 4 * s, [147, 197, 253, 255]);
+  if (maskable) {
+    // Full-bleed solid cobalt background for Android adaptive/maskable safe zone (15% padding)
+    for (let i = 0; i < size * size * 4; i += 4) {
+      buf[i] = 11;
+      buf[i + 1] = 92;
+      buf[i + 2] = 171;
+      buf[i + 3] = 255;
+    }
   }
 
-  // Subtle document lines on page
-  drawRoundedRect(buf, size, 54 * s, 102 * s, 198 * s, 112 * s, 5 * s, [203, 213, 225, 255]);
-  drawRoundedRect(buf, size, 54 * s, 126 * s, 162 * s, 136 * s, 5 * s, [226, 232, 240, 255]);
+  const inset = maskable ? size * 0.14 : 0;
+  const innerSize = size - inset * 2;
+  const s = innerSize / 256;
+  const ox = inset;
+  const oy = inset;
 
-  // Crisp Markdown badge at bottom of page
-  drawRoundedRect(buf, size, 52 * s, 152 * s, 204 * s, 212 * s, 14 * s, [15, 118, 110, 255]);
+  const rx = (v) => ox + v * s;
+  const ry = (v) => oy + v * s;
+
+  // Soft drop shadow
+  drawRoundedRect(buf, size, rx(32), ry(26), rx(224), ry(238), 28 * s, [15, 23, 42, 42]);
+
+  // Crisp white Windows 11 Notepad page
+  drawRoundedRect(buf, size, rx(30), ry(22), rx(226), ry(232), 26 * s, [248, 250, 252, 255]);
+
+  // Subtle border
+  drawRoundedRect(buf, size, rx(30), ry(22), rx(226), ry(232), 26 * s, [203, 213, 225, 95]);
+  drawRoundedRect(buf, size, rx(33), ry(25), rx(223), ry(229), 23 * s, [255, 255, 255, 255]);
+
+  // Cobalt Windows Notepad header binding strip
+  drawRoundedRect(buf, size, rx(30), ry(22), rx(226), ry(80), 24 * s, [11, 92, 171, 255]);
+  drawRoundedRect(buf, size, rx(30), ry(54), rx(226), ry(82), 0, [11, 92, 171, 255]);
+
+  // Subtle top highlight
+  drawRoundedRect(buf, size, rx(34), ry(26), rx(222), ry(46), 18 * s, [37, 131, 219, 120]);
+
+  // Spiral binding notches
+  for (let i = 0; i < 4; i++) {
+    const cx = 66 + i * 41;
+    drawRoundedRect(buf, size, rx(cx - 7), ry(12), rx(cx + 7), ry(40), 7 * s, [15, 62, 117, 255]);
+    drawRoundedRect(buf, size, rx(cx - 4), ry(14), rx(cx + 4), ry(36), 4 * s, [147, 197, 253, 255]);
+  }
+
+  // Document lines
+  drawRoundedRect(buf, size, rx(54), ry(102), rx(198), ry(112), 5 * s, [203, 213, 225, 255]);
+  drawRoundedRect(buf, size, rx(54), ry(126), rx(162), ry(136), 5 * s, [226, 232, 240, 255]);
+
+  // Crisp Markdown badge
+  drawRoundedRect(buf, size, rx(52), ry(152), rx(204), ry(212), 14 * s, [15, 118, 110, 255]);
 
   // Letter "M" inside badge
   const stroke = Math.max(2, 10 * s);
   const white = [255, 255, 255, 255];
-  drawLineSegment(buf, size, 74 * s, 197 * s, 74 * s, 167 * s, stroke, white);
-  drawLineSegment(buf, size, 74 * s, 167 * s, 94 * s, 188 * s, stroke, white);
-  drawLineSegment(buf, size, 94 * s, 188 * s, 114 * s, 167 * s, stroke, white);
-  drawLineSegment(buf, size, 114 * s, 167 * s, 114 * s, 197 * s, stroke, white);
+  drawLineSegment(buf, size, rx(74), ry(197), rx(74), ry(167), stroke, white);
+  drawLineSegment(buf, size, rx(74), ry(167), rx(94), ry(188), stroke, white);
+  drawLineSegment(buf, size, rx(94), ry(188), rx(114), ry(167), stroke, white);
+  drawLineSegment(buf, size, rx(114), ry(167), rx(114), ry(197), stroke, white);
 
-  // Downward Markdown arrow next to "M"
-  drawLineSegment(buf, size, 158 * s, 166 * s, 158 * s, 195 * s, stroke, white);
-  drawLineSegment(buf, size, 142 * s, 181 * s, 158 * s, 197 * s, stroke, white);
-  drawLineSegment(buf, size, 174 * s, 181 * s, 158 * s, 197 * s, stroke, white);
+  // Downward Markdown arrow
+  drawLineSegment(buf, size, rx(158), ry(166), rx(158), ry(195), stroke, white);
+  drawLineSegment(buf, size, rx(142), ry(181), rx(158), ry(197), stroke, white);
+  drawLineSegment(buf, size, rx(174), ry(181), rx(158), ry(197), stroke, white);
 
   return encodePng(size, size, buf);
 }
 
 function buildIcoFromPngs(entries) {
-  // entries: Array<{ size: number, png: Buffer }>
   const count = entries.length;
   const header = Buffer.alloc(6 + count * 16);
-  header.writeUInt16LE(0, 0); // reserved
-  header.writeUInt16LE(1, 2); // type 1 = ICO
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
   header.writeUInt16LE(count, 4);
 
   let offset = header.length;
@@ -186,10 +202,10 @@ function buildIcoFromPngs(entries) {
     const base = 6 + i * 16;
     header[base] = size >= 256 ? 0 : size;
     header[base + 1] = size >= 256 ? 0 : size;
-    header[base + 2] = 0; // palette
-    header[base + 3] = 0; // reserved
-    header.writeUInt16LE(1, base + 4); // planes
-    header.writeUInt16LE(32, base + 6); // bpp
+    header[base + 2] = 0;
+    header[base + 3] = 0;
+    header.writeUInt16LE(1, base + 4);
+    header.writeUInt16LE(32, base + 6);
     header.writeUInt32LE(png.length, base + 8);
     header.writeUInt32LE(offset, base + 12);
     offset += png.length;
@@ -199,26 +215,65 @@ function buildIcoFromPngs(entries) {
 }
 
 async function main() {
-  const desktopDir = path.join(process.cwd(), 'desktop', 'assets');
-  const nativeAssetsDir = path.join(process.cwd(), 'native', 'assets');
-  const nativeDocsDir = path.join(process.cwd(), 'native', 'docs');
-  await fs.mkdir(desktopDir, { recursive: true });
-  await fs.mkdir(nativeAssetsDir, { recursive: true });
-  await fs.mkdir(nativeDocsDir, { recursive: true });
+  const root = process.cwd();
+  const desktopDir = path.join(root, 'desktop', 'assets');
+  const nativeAssetsDir = path.join(root, 'native', 'assets');
+  const nativeDocsDir = path.join(root, 'native', 'docs');
+  const tauriIconsDir = path.join(root, 'src-tauri', 'icons');
+  const publicDir = path.join(root, 'public');
+  const androidResDir = path.join(root, 'android', 'app', 'src', 'main', 'res');
 
-  const sizes = [256, 64, 48, 32, 16];
+  for (const dir of [desktopDir, nativeAssetsDir, nativeDocsDir, tauriIconsDir, publicDir]) {
+    await fs.mkdir(dir, { recursive: true });
+  }
+
+  const sizes = [256, 128, 64, 48, 32, 16];
   const rendered = sizes.map((size) => ({ size, png: renderMdPadIcon(size) }));
+  const bySize = Object.fromEntries(rendered.map((r) => [r.size, r.png]));
 
-  const png256 = rendered[0].png;
-  const ico = buildIcoFromPngs(rendered);
+  const ico = buildIcoFromPngs([256, 64, 48, 32, 16].map((size) => ({ size, png: bySize[size] })));
 
-  await fs.writeFile(path.join(desktopDir, 'icon.png'), png256);
+  // Desktop / Native / Tauri icons
+  await fs.writeFile(path.join(desktopDir, 'icon.png'), bySize[256]);
   await fs.writeFile(path.join(desktopDir, 'icon.ico'), ico);
   await fs.writeFile(path.join(nativeAssetsDir, 'MDPad.ico'), ico);
-  await fs.writeFile(path.join(nativeDocsDir, 'icon.png'), png256);
-  console.log(
-    `Generated icon.png (${png256.length} B) and MDPad.ico (${ico.length} B) in desktop/assets and native/`
-  );
+  await fs.writeFile(path.join(nativeDocsDir, 'icon.png'), bySize[256]);
+
+  await fs.writeFile(path.join(tauriIconsDir, '32x32.png'), bySize[32]);
+  await fs.writeFile(path.join(tauriIconsDir, '128x128.png'), bySize[128]);
+  await fs.writeFile(path.join(tauriIconsDir, '128x128@2x.png'), bySize[256]);
+  await fs.writeFile(path.join(tauriIconsDir, 'icon.png'), bySize[256]);
+  await fs.writeFile(path.join(tauriIconsDir, 'icon.ico'), ico);
+
+  // PWA icons (192x192, 512x512, maskable 512x512 with 14% safe zone, 180x180 apple-touch-icon, favicon.ico)
+  const pwa192 = renderMdPadIcon(192);
+  const pwa512 = renderMdPadIcon(512);
+  const pwaMaskable512 = renderMdPadIcon(512, { maskable: true });
+  const apple180 = renderMdPadIcon(180);
+
+  await fs.writeFile(path.join(publicDir, 'pwa-192x192.png'), pwa192);
+  await fs.writeFile(path.join(publicDir, 'pwa-512x512.png'), pwa512);
+  await fs.writeFile(path.join(publicDir, 'pwa-maskable-512x512.png'), pwaMaskable512);
+  await fs.writeFile(path.join(publicDir, 'apple-touch-icon.png'), apple180);
+  await fs.writeFile(path.join(publicDir, 'favicon.ico'), ico);
+
+  // Android mipmap launcher icons
+  const androidDensities = [
+    ['mipmap-mdpi', 48],
+    ['mipmap-hdpi', 72],
+    ['mipmap-xhdpi', 96],
+    ['mipmap-xxhdpi', 144],
+    ['mipmap-xxxhdpi', 192],
+  ];
+  for (const [folder, px] of androidDensities) {
+    const dir = path.join(androidResDir, folder);
+    await fs.mkdir(dir, { recursive: true });
+    const icon = renderMdPadIcon(px, { maskable: true });
+    await fs.writeFile(path.join(dir, 'ic_launcher.png'), icon);
+    await fs.writeFile(path.join(dir, 'ic_launcher_round.png'), icon);
+  }
+
+  console.log('Generated all Desktop, Tauri, PWA, and Android icons for MDPad.');
 }
 
 main().catch((err) => {

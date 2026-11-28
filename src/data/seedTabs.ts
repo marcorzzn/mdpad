@@ -4,6 +4,7 @@ export interface EditorTab {
   id: string;
   title: string;
   filePath?: string;
+  androidUri?: string;
   content: string;
   savedContent: string;
   encoding: FileEncoding;

@@ -12,6 +12,12 @@ desktop/server-bundle.cjs
 native/target/
 native/dist/
 native/.tools/
+src-tauri/target/
+src-tauri/dist/
+src-tauri/.tools/
+android/.gradle/
+android/app/build/
+android/app/src/main/assets/
 
 # Environment variables
 .env

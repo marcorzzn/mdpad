@@ -1,9 +1,19 @@
-import React, { useRef, useState } from 'react';
-import { Download, FileArchive, FileText, FolderOpen, Sparkles, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Check, Download, FileArchive, FileText, FolderOpen, Save, Sparkles, X } from 'lucide-react';
+import {
+  collectFolderFilesForScan,
+  detectRuntimePlatform,
+  isDirectFolderWriteSupported,
+  openNativeFolder,
+  writeFilesDirectlyToFolder,
+  type NativeFolderContext,
+} from '../lib/fs/nativeFs';
+import { buildFolderPostItZipBlob, scanFolderLocally } from '../lib/markitdown/clientEngine';
 import type { FolderPostItResult } from '../lib/markitdown/types';
 
 interface FolderPostItModalProps {
   open: boolean;
+  activeFolder?: NativeFolderContext | null;
   onClose: () => void;
   onOpenInEditor: (title: string, markdown: string) => void;
 }
@@ -30,6 +40,7 @@ function formatBytes(bytes: number): string {
 
 export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
   open,
+  activeFolder = null,
   onClose,
   onOpenInEditor,
 }) => {
@@ -40,16 +51,58 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [zipLoading, setZipLoading] = useState(false);
+  const [savingDirect, setSavingDirect] = useState(false);
+  const [directSavedMsg, setDirectSavedMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FolderPostItResult | null>(null);
+  const [selectedFolder, setSelectedFolder] = useState<NativeFolderContext | null>(activeFolder);
   const [artifactTab, setArtifactTab] = useState<ArtifactTab>('postit');
 
+  useEffect(() => {
+    if (open && activeFolder) {
+      setSelectedFolder(activeFolder);
+    }
+  }, [open, activeFolder]);
+
   if (!open) return null;
+
+  const scanNativeFolderContext = async (folder: NativeFolderContext) => {
+    setLoading(true);
+    setError(null);
+    setDirectSavedMsg(null);
+    try {
+      setSelectedFolder(folder);
+      const entries = await collectFolderFilesForScan(folder, 40);
+      const localResult = await scanFolderLocally(folder.folderName, entries, customNote);
+      setResult(localResult);
+      setArtifactTab('postit');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante la scansione della cartella.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChooseNativeFolder = async () => {
+    const platform = detectRuntimePlatform();
+    if (platform !== 'browser-fallback') {
+      const picked = await openNativeFolder();
+      if (picked) {
+        await scanNativeFolderContext(picked);
+        return;
+      }
+      if (platform === 'tauri' || platform === 'android') {
+        return;
+      }
+    }
+    folderInputRef.current?.click();
+  };
 
   const handleScanFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     setLoading(true);
     setError(null);
+    setDirectSavedMsg(null);
     try {
       const files = Array.from(fileList).slice(0, 40);
       const firstRel = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath || '';
@@ -58,19 +111,33 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
         (f) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
       );
 
-      const form = new FormData();
-      form.append('folderName', inferredFolder);
-      form.append('customNote', customNote);
-      form.append('relativePaths', JSON.stringify(relativePaths));
-      for (const file of files) {
-        form.append('files', file, file.name);
-      }
+      try {
+        const form = new FormData();
+        form.append('folderName', inferredFolder);
+        form.append('customNote', customNote);
+        form.append('relativePaths', JSON.stringify(relativePaths));
+        for (const file of files) {
+          form.append('files', file, file.name);
+        }
 
-      const resp = await fetch('/api/folder/scan', { method: 'POST', body: form });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Scansione fallita.');
-      setResult(data as FolderPostItResult);
-      setArtifactTab('postit');
+        const resp = await fetch('/api/folder/scan', { method: 'POST', body: form });
+        if (!resp.ok) throw new Error('API non disponibile');
+        const data = await resp.json();
+        setResult(data as FolderPostItResult);
+        setArtifactTab('postit');
+      } catch {
+        // 100% offline fallback (Windows/macOS/Linux native app, Android APK, PWA)
+        const entries = await Promise.all(
+          files.map(async (file, idx) => ({
+            relativePath: relativePaths[idx] || file.name,
+            filename: file.name,
+            bytes: new Uint8Array(await file.arrayBuffer()),
+          }))
+        );
+        const localResult = await scanFolderLocally(inferredFolder, entries, customNote);
+        setResult(localResult);
+        setArtifactTab('postit');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore durante la scansione.');
     } finally {
@@ -81,18 +148,48 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
   const handleScanDemo = async () => {
     setLoading(true);
     setError(null);
+    setDirectSavedMsg(null);
     try {
       const resp = await fetch('/api/folder/scan-demo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ customNote }),
       });
+      if (!resp.ok) throw new Error('Demo server non disponibile');
       const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Errore scansione demo.');
       setResult(data as FolderPostItResult);
       setArtifactTab('postit');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore scansione demo.');
+    } catch {
+      // Offline demo fallback (works identically inside standalone Desktop/Android app)
+      const enc = new TextEncoder();
+      const offlineDemo = await scanFolderLocally(
+        'Progetto_Demo_MarkItDown',
+        [
+          {
+            relativePath: 'Progetto_Demo_MarkItDown/Specifiche.md',
+            filename: 'Specifiche.md',
+            bytes: enc.encode('# Specifiche MDPad\nEditor cross-platform di Marco Razzano con MarkItDown offline.'),
+          },
+          {
+            relativePath: 'Progetto_Demo_MarkItDown/Budget_2026.csv',
+            filename: 'Budget_2026.csv',
+            bytes: enc.encode('Voce,Q1,Q2\nSviluppo,0,0\nCertificazione SignPath OSS,0,0\n'),
+          },
+          {
+            relativePath: 'Progetto_Demo_MarkItDown/Report.html',
+            filename: 'Report.html',
+            bytes: enc.encode('<html><head><title>Report Q1</title></head><body><h1>Report Q1</h1><p>Completato su Windows e Android.</p></body></html>'),
+          },
+          {
+            relativePath: 'Progetto_Demo_MarkItDown/Config.json',
+            filename: 'Config.json',
+            bytes: enc.encode('{"app":"MDPad","author":"Marco Razzano","offlineMarkItDown":true}'),
+          },
+        ],
+        customNote
+      );
+      setResult(offlineDemo);
+      setArtifactTab('postit');
     } finally {
       setLoading(false);
     }
@@ -117,9 +214,59 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
       setResult(data as FolderPostItResult);
       setArtifactTab('postit');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore durante la sintesi AI.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Sintesi AI disponibile solo online con chiave Gemini configurata.'
+      );
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  const handleSaveDirectlyToFolder = async () => {
+    if (!result || !selectedFolder || !isDirectFolderWriteSupported(selectedFolder)) return;
+    setSavingDirect(true);
+    setError(null);
+    setDirectSavedMsg(null);
+    try {
+      const filesToWrite =
+        selectedFolder.platform === 'android'
+          ? [
+              {
+                filename: '_POST-IT.md',
+                content: result.postItMarkdown,
+                mimeType: 'text/markdown',
+              },
+            ]
+          : [
+              {
+                filename: '_POST-IT.md',
+                content: result.postItMarkdown,
+                mimeType: 'text/markdown',
+              },
+              {
+                filename: 'desktop.ini',
+                content: result.desktopIni,
+                mimeType: 'text/plain',
+              },
+              {
+                filename: '.directory',
+                content: result.linuxDirectory,
+                mimeType: 'text/plain',
+              },
+            ];
+
+      const { written } = await writeFilesDirectlyToFolder(selectedFolder, filesToWrite);
+      setDirectSavedMsg(`Salvato direttamente in "${selectedFolder.folderName}": ${written.join(', ')}`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Impossibile scrivere direttamente nella cartella selezionata.'
+      );
+    } finally {
+      setSavingDirect(false);
     }
   };
 
@@ -128,19 +275,26 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
     setZipLoading(true);
     setError(null);
     try {
-      const resp = await fetch('/api/folder/export-zip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          folderName: result.folderName,
-          postItMarkdown: result.postItMarkdown,
-          desktopIni: result.desktopIni,
-          linuxDirectory: result.linuxDirectory,
-          applyBat: result.applyBat,
-        }),
-      });
-      if (!resp.ok) throw new Error('Impossibile creare il pacchetto ZIP.');
-      const blob = await resp.blob();
+      let blob: Blob;
+      try {
+        const resp = await fetch('/api/folder/export-zip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            folderName: result.folderName,
+            postItMarkdown: result.postItMarkdown,
+            desktopIni: result.desktopIni,
+            linuxDirectory: result.linuxDirectory,
+            applyBat: result.applyBat,
+          }),
+        });
+        if (!resp.ok) throw new Error('Server ZIP non disponibile');
+        blob = await resp.blob();
+      } catch {
+        // Offline client-side JSZip generation
+        blob = await buildFolderPostItZipBlob(result);
+      }
+
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -165,6 +319,8 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
           ? result.linuxDirectory
           : result.applyBat
     : '';
+
+  const canWriteDirectly = isDirectFolderWriteSupported(selectedFolder);
 
   return (
     <div
@@ -192,8 +348,8 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
               Post-it Cartelle con Microsoft MarkItDown
             </h2>
             <p className="text-xs" style={{ color: 'var(--md-text-muted)' }}>
-              Analizza tutti i documenti di una cartella (PDF, Word, Excel, PowerPoint, HTML, EPUB,
-              ZIP) e genera _POST-IT.md, desktop.ini (Windows 7–11) e .directory (Linux).
+              Analizza tutti i documenti di una cartella (anche offline su Windows, macOS, Linux e
+              Android) e salva _POST-IT.md, desktop.ini e .directory direttamente nella cartella.
             </p>
           </div>
           <button
@@ -258,7 +414,7 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
               <button
                 type="button"
                 disabled={loading}
-                onClick={() => folderInputRef.current?.click()}
+                onClick={() => void handleChooseNativeFolder()}
                 className="flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors hover:bg-black/5 dark:hover:bg-white/10"
                 style={{ borderColor: 'var(--md-border)', color: 'var(--md-text)' }}
               >
@@ -278,6 +434,29 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
             </div>
           </div>
 
+          {activeFolder && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-4 py-2.5 text-xs"
+              style={{
+                backgroundColor: 'var(--md-accent-soft)',
+                borderColor: 'var(--md-accent)',
+              }}
+            >
+              <span>
+                Cartella aperta nel pannello: <strong>{activeFolder.folderName}</strong>
+              </span>
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() => void scanNativeFolderContext(activeFolder)}
+                className="rounded-md px-3 py-1.5 text-xs font-medium"
+                style={{ backgroundColor: 'var(--md-accent)', color: 'var(--md-accent-fg)' }}
+              >
+                Analizza &amp; Annota &ldquo;{activeFolder.folderName}&rdquo;
+              </button>
+            </div>
+          )}
+
           <div
             className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-4 py-3"
             style={{
@@ -286,8 +465,8 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
             }}
           >
             <div className="text-xs" style={{ color: 'var(--md-text-muted)' }}>
-              Vuoi provare subito il motore MarkItDown su una cartella reale con 12 documenti misti
-              (PDF, DOCX, XLSX, PPTX, HTML, Wikipedia, RSS, EPUB, IPYNB, ZIP, JSON, JPG)?
+              Vuoi provare subito il motore MarkItDown su una cartella dimostrativa (PDF, DOCX,
+              XLSX, PPTX, HTML, Wikipedia, RSS, EPUB, IPYNB, ZIP, JSON)?
             </div>
             <button
               type="button"
@@ -317,9 +496,23 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
             </div>
           )}
 
+          {directSavedMsg && (
+            <div
+              role="status"
+              className="flex items-center gap-2 rounded-md border px-3.5 py-2.5 text-xs"
+              style={{
+                borderColor: '#16a34a',
+                backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                color: 'var(--md-text)',
+              }}
+            >
+              <Check className="h-4 w-4 text-green-600" />
+              <span>{directSavedMsg}</span>
+            </div>
+          )}
+
           {result && (
             <div className="space-y-4">
-              {/* Summary strip (unboxed typographic metadata) */}
               <div
                 className="flex flex-wrap items-center justify-between gap-3 border-b pb-3 text-xs"
                 style={{ borderColor: 'var(--md-border)' }}
@@ -339,6 +532,23 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  {canWriteDirectly && (
+                    <button
+                      type="button"
+                      disabled={savingDirect}
+                      onClick={() => void handleSaveDirectlyToFolder()}
+                      className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium whitespace-nowrap text-white disabled:opacity-50"
+                      style={{ backgroundColor: '#0f766e' }}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      <span>
+                        {savingDirect
+                          ? 'Salvataggio in corso…'
+                          : 'Salva _POST-IT.md nella cartella'}
+                      </span>
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     disabled={aiLoading}
@@ -365,7 +575,6 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
                 </div>
               </div>
 
-              {/* Artifacts selector & preview */}
               <div className="grid gap-4 lg:grid-cols-5">
                 <div className="space-y-2 lg:col-span-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -451,13 +660,12 @@ export const FolderPostItModal: React.FC<FolderPostItModalProps> = ({
                     >
                       <FileArchive className="h-3.5 w-3.5" />
                       <span>
-                        {zipLoading ? 'Creazione ZIP…' : 'Pacchetto ZIP Universale (Win/Linux/iPad)'}
+                        {zipLoading ? 'Creazione ZIP…' : 'Pacchetto ZIP Universale (Win/Linux/Android/iPad)'}
                       </span>
                     </button>
                   </div>
                 </div>
 
-                {/* Extracted files inventory */}
                 <div className="space-y-2 lg:col-span-2">
                   <h3 className="text-xs font-semibold">File analizzati da MarkItDown</h3>
                   <div

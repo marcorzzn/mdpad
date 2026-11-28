@@ -1,4 +1,4 @@
-name: Build Native Windows Release (Rust + Win32 Installer, Portable ZIP & SHA256SUMS)
+name: Build MDPad Release (Windows, Android APK, Linux & macOS — by Marco Razzano)
 
 on:
   workflow_dispatch:
@@ -12,114 +12,265 @@ permissions:
   contents: write
 
 jobs:
-  build-native-windows:
-    name: Build Native Rust+Win32 MDPad (Setup EXE, Portable ZIP & SHA256SUMS)
+  build-web:
+    name: Web Lint, Unit Tests & Offline Bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install dependencies, test & build offline dist/
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Upload compiled offline web bundle (dist/)
+        uses: actions/upload-artifact@v7
+        with:
+          name: mdpad-web-dist
+          path: dist/
+          retention-days: 7
+
+  build-windows:
+    name: Windows Desktop (Tauri v2 Native EXE, Inno Setup & Portable ZIP)
+    needs: [build-web]
     runs-on: windows-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Setup Node.js 22 (Web tests & build)
-        uses: actions/setup-node@v6
+      - name: Download compiled web bundle
+        uses: actions/download-artifact@v8
         with:
-          node-version: '22'
-
-      - name: Install web dependencies & verify Web suite
-        shell: pwsh
-        run: |
-          if (Test-Path package-lock.json) {
-            npm ci
-          } else {
-            npm install --no-audit --no-fund
-          }
-          npm run lint
-          npm test
-          npm run build
+          name: mdpad-web-dist
+          path: dist
 
       - name: Setup Rust MSVC toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Run native Rust + Win32 unit tests
-        working-directory: native
+      - name: Build & Package Native Windows MDPad (Full UI + Native FS + Inno Setup + Portable ZIP)
         shell: pwsh
         env:
-          MDPAD_UPDATE_REPO: ${{ github.repository }}
-        run: cargo test
-
-      - name: Build & Package Native MDPad.exe (Inno Setup Installer + Clean Portable ZIP + SHA256SUMS)
-        shell: pwsh
-        env:
-          MDPAD_UPDATE_REPO: ${{ github.repository }}
           WIN_CSC_PFX_BASE64: ${{ secrets.WIN_CSC_PFX_BASE64 }}
           WIN_CSC_PASSWORD: ${{ secrets.WIN_CSC_PASSWORD }}
-        run: pwsh -File native/scripts/package.ps1
+        run: pwsh -File src-tauri/scripts/package-windows.ps1
 
-      - name: Verify generated native Windows release artifacts
-        shell: pwsh
+      - name: Upload Windows Installer (MDPad-setup.exe)
+        id: upload-win-installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: MDPad-Windows-Installer
+          path: src-tauri/dist/MDPad-*-setup.exe
+          retention-days: 30
+
+      - name: Optional SignPath Foundation Open-Source Code Signing
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' && secrets.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ secrets.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'mdpad' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          github-artifact-id: ${{ steps.upload-win-installer.outputs.artifact-id }}
+          output-artifact-directory: src-tauri/dist-signed
+          wait-for-completion: true
+
+      - name: Upload Signed Windows Installer (SignPath OSS)
+        if: ${{ secrets.SIGNPATH_API_TOKEN != '' && secrets.SIGNPATH_ORGANIZATION_ID != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: MDPad-Windows-Installer-Signed
+          path: src-tauri/dist-signed/*
+          retention-days: 30
+
+      - name: Upload Windows Portable ZIP (MDPad-portable.zip)
+        uses: actions/upload-artifact@v7
+        with:
+          name: MDPad-Windows-Portable-ZIP
+          path: src-tauri/dist/MDPad-*-portable.zip
+          retention-days: 30
+
+      - name: Upload Windows SHA256SUMS.txt
+        uses: actions/upload-artifact@v7
+        with:
+          name: MDPad-Windows-SHA256SUMS
+          path: src-tauri/dist/SHA256SUMS.txt
+          retention-days: 30
+
+  build-android:
+    name: Android Native APK (Default .md Editor + Offline MarkItDown + SAF)
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download compiled web bundle into Android assets/
+        uses: actions/download-artifact@v8
+        with:
+          name: mdpad-web-dist
+          path: android/app/src/main/assets
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Decode optional Android Release Keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: |
-          Get-ChildItem native/dist -File | Format-Table Name, Length
-          if (-not (Get-ChildItem native/dist/MDPad-*-setup.exe -ErrorAction SilentlyContinue)) {
-            throw "MDPad-*-setup.exe was not generated."
-          }
-          if (-not (Get-ChildItem native/dist/MDPad-*-portable.zip -ErrorAction SilentlyContinue)) {
-            throw "MDPad-*-portable.zip was not generated."
-          }
-          if (-not (Test-Path native/dist/SHA256SUMS.txt)) {
-            throw "SHA256SUMS.txt was not generated."
-          }
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/mdpad-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/mdpad-release.jks" >> "$GITHUB_ENV"
 
-      - name: Upload Native Windows Installer (MDPad-setup.exe)
+      - name: Build Android APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_PATH:-}" ]; then
+            gradle assembleRelease --no-daemon
+            cp app/build/outputs/apk/release/app-release.apk ../MDPad-1.0.0-android.apk
+          else
+            gradle assembleDebug --no-daemon
+            cp app/build/outputs/apk/debug/app-debug.apk ../MDPad-1.0.0-android.apk
+          fi
+
+      - name: Generate Android SHA256SUMS
+        run: sha256sum MDPad-1.0.0-android.apk > SHA256SUMS-android.txt
+
+      - name: Upload Android APK & Checksum
         uses: actions/upload-artifact@v7
         with:
-          name: MDPad-Native-Installer-Windows
-          path: native/dist/MDPad-*-setup.exe
+          name: MDPad-Android-APK
+          path: |
+            MDPad-1.0.0-android.apk
+            SHA256SUMS-android.txt
           retention-days: 30
 
-      - name: Upload Native Portable ZIP (MDPad-portable.zip)
+  build-linux:
+    name: Linux Desktop (Tauri v2 Native Binary)
+    needs: [build-web]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download compiled web bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: mdpad-web-dist
+          path: dist
+
+      - name: Install Linux WebKitGTK / GTK3 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux MDPad binary
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - name: Package Linux Portable tar.gz
+        run: |
+          mkdir -p linux-dist
+          cp src-tauri/target/release/MDPad linux-dist/MDPad
+          cp LICENSE linux-dist/LICENSE.txt
+          tar -czf MDPad-1.0.0-linux-x64.tar.gz -C linux-dist .
+          sha256sum MDPad-1.0.0-linux-x64.tar.gz > SHA256SUMS-linux.txt
+
+      - name: Upload Linux Desktop Package
         uses: actions/upload-artifact@v7
         with:
-          name: MDPad-Native-Portable-ZIP-Windows
-          path: native/dist/MDPad-*-portable.zip
+          name: MDPad-Linux-x64
+          path: |
+            MDPad-1.0.0-linux-x64.tar.gz
+            SHA256SUMS-linux.txt
           retention-days: 30
 
-      - name: Upload SHA256SUMS.txt
+  build-macos:
+    name: macOS Desktop (Tauri v2 Native Binary)
+    needs: [build-web]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download compiled web bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: mdpad-web-dist
+          path: dist
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build macOS MDPad binary
+        working-directory: src-tauri
+        run: cargo build --release
+
+      - name: Package macOS Portable ZIP
+        run: |
+          mkdir -p macos-dist
+          cp src-tauri/target/release/MDPad macos-dist/MDPad
+          cp LICENSE macos-dist/LICENSE.txt
+          zip -j MDPad-1.0.0-macos.zip macos-dist/MDPad macos-dist/LICENSE.txt
+          shasum -a 256 MDPad-1.0.0-macos.zip > SHA256SUMS-macos.txt
+
+      - name: Upload macOS Desktop Package
         uses: actions/upload-artifact@v7
         with:
-          name: MDPad-SHA256SUMS
-          path: native/dist/SHA256SUMS.txt
+          name: MDPad-macOS
+          path: |
+            MDPad-1.0.0-macos.zip
+            SHA256SUMS-macos.txt
           retention-days: 30
 
   publish-github-release:
     name: Publish GitHub Release (on v* tags)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-native-windows]
+    needs: [build-windows, build-android, build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
-      - name: Download Native Windows Installer
+      - name: Download all release artifacts
         uses: actions/download-artifact@v8
         with:
-          name: MDPad-Native-Installer-Windows
           path: artifacts
+          merge-multiple: true
 
-      - name: Download Native Portable ZIP
-        uses: actions/download-artifact@v8
-        with:
-          name: MDPad-Native-Portable-ZIP-Windows
-          path: artifacts
-
-      - name: Download SHA256SUMS
-        uses: actions/download-artifact@v8
-        with:
-          name: MDPad-SHA256SUMS
-          path: artifacts
-
-      - name: Create GitHub Release with Native Rust+Win32 MDPad assets
+      - name: Create GitHub Release with Windows, Android, Linux & macOS binaries
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
             artifacts/MDPad-*-setup.exe
             artifacts/MDPad-*-portable.zip
-            artifacts/SHA256SUMS.txt
+            artifacts/MDPad-*-android.apk
+            artifacts/MDPad-*-linux-x64.tar.gz
+            artifacts/MDPad-*-macos.zip
+            artifacts/SHA256SUMS*.txt

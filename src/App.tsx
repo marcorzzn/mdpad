@@ -55,6 +55,16 @@ import {
 } from './lib/editor/renotepadOps';
 import { I18nProvider } from './lib/i18n/I18nContext';
 import { resolveLocale, TRANSLATIONS } from './lib/i18n/translations';
+import {
+  detectRuntimePlatform,
+  openNativeFile,
+  readWorkspaceNodeBytes,
+  saveNativeFile,
+  subscribeIncomingLaunchFiles,
+  type NativeFolderContext,
+  type NativeOpenedFile,
+} from './lib/fs/nativeFs';
+import { convertBytesClientSide } from './lib/markitdown/clientEngine';
 import type {
   AppTheme,
   ConversionResponse,
@@ -199,11 +209,13 @@ export default function App() {
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [markitdownOpen, setMarkitdownOpen] = useState(false);
   const [crossPlatformOpen, setCrossPlatformOpen] = useState(false);
+  const [activeFolder, setActiveFolder] = useState<NativeFolderContext | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const previewScrollRef = useRef<HTMLDivElement | null>(null);
   const openLocalInputRef = useRef<HTMLInputElement | null>(null);
   const syncingScrollRef = useRef<'editor' | 'preview' | null>(null);
+  const browserFileHandlesRef = useRef<Map<string, FileSystemFileHandle>>(new Map());
 
   const activeTab = useMemo(
     () => tabs.find((t) => t.id === activeTabId) ?? tabs[0],
@@ -534,7 +546,7 @@ export default function App() {
     };
   }, [handleOpenDesktopPayload]);
 
-  // File Save / Open / Export
+  // File Save / Open / Export (Native Desktop Tauri, Android SAF, Browser File System Access API, or fallback)
   const handleSaveMd = useCallback(async () => {
     const bridge = window.mdpadDesktop;
     if (bridge?.isDesktop) {
@@ -565,26 +577,53 @@ export default function App() {
       activeTab.encoding,
       activeTab.lineEnding
     );
-    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = activeTab.title;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    updateActiveTab((t) => ({ ...t, savedContent: t.content }));
-    showNotice(`Salvato "${activeTab.title}" (${activeTab.encoding}, ${activeTab.lineEnding})`);
+    const existingHandle = browserFileHandlesRef.current.get(activeTab.id);
+    try {
+      const res = await saveNativeFile({
+        suggestedName: activeTab.title,
+        bytes,
+        mimeType: 'text/markdown;charset=utf-8',
+        nativePath: activeTab.filePath,
+        androidUri: activeTab.androidUri,
+        browserHandle: existingHandle,
+      });
+      if (!res.saved) return;
+      if (res.browserHandle) {
+        browserFileHandlesRef.current.set(activeTab.id, res.browserHandle);
+      }
+      updateActiveTab((t) => ({
+        ...t,
+        title: res.name || t.title,
+        filePath: res.nativePath ?? t.filePath,
+        androidUri: res.androidUri ?? t.androidUri,
+        savedContent: t.content,
+      }));
+      showNotice(`Salvato "${res.name || activeTab.title}" (${activeTab.encoding}, ${activeTab.lineEnding})`);
+    } catch (err) {
+      showNotice(err instanceof Error ? err.message : 'Errore salvataggio file.');
+    }
   }, [activeTab, updateActiveTab, showNotice]);
 
-  const triggerOpenFile = useCallback(() => {
+  const handleOpenNativeBytesRef = useRef<(file: NativeOpenedFile) => Promise<void>>(async () => {});
+
+  const triggerOpenFile = useCallback(async () => {
     const bridge = window.mdpadDesktop;
     if (bridge?.isDesktop) {
-      void bridge.openFileDialog().then((payload) => {
-        if (payload) void handleOpenDesktopPayload(payload);
-      });
+      const payload = await bridge.openFileDialog();
+      if (payload) void handleOpenDesktopPayload(payload);
       return;
+    }
+
+    const platform = detectRuntimePlatform();
+    if (platform !== 'browser-fallback') {
+      const picked = await openNativeFile();
+      if (picked) {
+        await handleOpenNativeBytesRef.current(picked);
+        return;
+      }
+      if (platform === 'tauri' || platform === 'android') {
+        return;
+      }
     }
     openLocalInputRef.current?.click();
   }, [handleOpenDesktopPayload]);
@@ -631,13 +670,19 @@ export default function App() {
       rawText: string,
       encoding: FileEncoding = 'UTF-8',
       lineEnding: LineEnding = detectLineEnding(rawText),
-      filePath?: string
+      filePath?: string,
+      androidUri?: string,
+      browserHandle?: FileSystemFileHandle
     ) => {
-      // Switch to existing tab if this path/title is already open (RE:Notepad behavior)
+      // Switch to existing tab if this path/URI/title is already open (RE:Notepad behavior)
       const existing = tabs.find(
-        (tab) => (filePath && tab.filePath === filePath) || (!filePath && tab.title === title)
+        (tab) =>
+          (filePath && tab.filePath === filePath) ||
+          (androidUri && tab.androidUri === androidUri) ||
+          (!filePath && !androidUri && tab.title === title)
       );
       if (existing) {
+        if (browserHandle) browserFileHandlesRef.current.set(existing.id, browserHandle);
         setActiveTabId(existing.id);
         setCursorPos(0);
         setSelectionRange({ start: 0, end: 0 });
@@ -666,12 +711,16 @@ export default function App() {
       }
 
       const id = `tab-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      if (browserHandle) {
+        browserFileHandlesRef.current.set(id, browserHandle);
+      }
       setTabs((prev) => [
         ...prev,
         {
           id,
           title,
           filePath,
+          androidUri,
           content,
           savedContent,
           encoding,
@@ -687,45 +736,91 @@ export default function App() {
     [tabs, locale, showNotice]
   );
 
-  const handleOpenLocalFile = useCallback(async (file: File | undefined) => {
-    if (!file) return;
-    const ext = file.name.toLowerCase();
-    const isPlain = /\.(md|markdown|txt|log|ini|cfg|conf|json|jsonl|ndjson|yaml|yml|toml|xml|csv|tsv|rs|ts|tsx|js|css|html)$/i.test(
-      ext
-    );
-    if (isPlain) {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      const encoding = detectEncoding(bytes);
-      const decoded = decodeBytes(bytes, encoding);
-      const lineEnding = detectLineEnding(decoded);
-      openTextDocumentWithReNotepadRules(file.name, decoded, encoding, lineEnding);
-    } else {
-      // Automatically route binary/Office/PDF files through MarkItDown!
-      const form = new FormData();
-      form.append('file', file);
+  const handleOpenNativeBytes = useCallback(
+    async (opened: NativeOpenedFile) => {
+      const ext = opened.name.toLowerCase();
+      const isPlain =
+        /\.(md|markdown|mdown|mkd|txt|log|ini|cfg|conf|json|jsonl|ndjson|yaml|yml|toml|xml|csv|tsv|rs|ts|tsx|js|css|html)$/i.test(
+          ext
+        );
+      if (isPlain) {
+        const encoding = detectEncoding(opened.bytes);
+        const decoded = decodeBytes(opened.bytes, encoding);
+        const lineEnding = detectLineEnding(decoded);
+        openTextDocumentWithReNotepadRules(
+          opened.name,
+          decoded,
+          encoding,
+          lineEnding,
+          opened.nativePath,
+          opened.androidUri,
+          opened.browserHandle
+        );
+        return;
+      }
+
+      // Automatically route binary/Office/PDF files through MarkItDown (online API or 100% offline fallback)
       try {
-        const resp = await fetch('/api/convert/file', { method: 'POST', body: form });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || 'Formato non supportato.');
-        handleOpenConverted(data as ConversionResponse);
+        try {
+          const copy = new Uint8Array(opened.bytes.byteLength);
+          copy.set(opened.bytes);
+          const form = new FormData();
+          form.append('file', new File([copy], opened.name));
+          const resp = await fetch('/api/convert/file', { method: 'POST', body: form });
+          if (!resp.ok) throw new Error('API non disponibile');
+          const data = await resp.json();
+          handleOpenConverted(data as ConversionResponse);
+          return;
+        } catch {
+          const localConv = await convertBytesClientSide(opened.bytes, opened.name);
+          handleOpenConverted(localConv);
+        }
       } catch (err) {
         showNotice(err instanceof Error ? err.message : 'Impossibile aprire il file.');
       }
-    }
-  }, [handleOpenConverted, openTextDocumentWithReNotepadRules, showNotice]);
+    },
+    [handleOpenConverted, openTextDocumentWithReNotepadRules, showNotice]
+  );
+
+  handleOpenNativeBytesRef.current = handleOpenNativeBytes;
+
+  // Listen for OS file-open launches (Windows/macOS/Linux double-click .md, Android default .md Intent, PWA launchQueue)
+  useEffect(() => {
+    return subscribeIncomingLaunchFiles((opened) => {
+      void handleOpenNativeBytesRef.current(opened);
+    });
+  }, []);
+
+  const handleOpenLocalFile = useCallback(
+    async (file: File | undefined) => {
+      if (!file) return;
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await handleOpenNativeBytes({ name: file.name, bytes });
+    },
+    [handleOpenNativeBytes]
+  );
 
   const handleOpenWorkspaceNode = useCallback(
     async (node: WorkspaceNode) => {
       if (node.kind !== 'file') return;
-      if (node.fileObj) {
-        await handleOpenLocalFile(node.fileObj);
-        return;
+      if (node.fileObj || node.browserHandle || node.nativePath || node.androidUri) {
+        const bytes = await readWorkspaceNodeBytes(node);
+        if (bytes) {
+          await handleOpenNativeBytes({
+            name: node.name,
+            bytes,
+            nativePath: node.nativePath,
+            androidUri: node.androidUri,
+            browserHandle: node.browserHandle,
+          });
+          return;
+        }
       }
       if (typeof node.content === 'string') {
         openTextDocumentWithReNotepadRules(node.name, node.content, 'UTF-8', 'CRLF', node.path);
       }
     },
-    [handleOpenLocalFile, openTextDocumentWithReNotepadRules]
+    [handleOpenNativeBytes, openTextDocumentWithReNotepadRules]
   );
 
   // Editor formatting & commands
@@ -1281,6 +1376,8 @@ export default function App() {
           {showFolderPane && (
             <FolderPane
               activeFileTitle={activeTab.title}
+              activeFolder={activeFolder}
+              onFolderChange={setActiveFolder}
               onOpenWorkspaceNode={(node) => void handleOpenWorkspaceNode(node)}
               onOpenFolderPostIt={() => setFolderModalOpen(true)}
               onClose={() => setShowFolderPane(false)}
@@ -1460,6 +1557,7 @@ export default function App() {
 
         <FolderPostItModal
           open={folderModalOpen}
+          activeFolder={activeFolder}
           onClose={() => setFolderModalOpen(false)}
           onOpenInEditor={(title, md) => {
             openDocumentInNewTab(title, md, 'Post-it');

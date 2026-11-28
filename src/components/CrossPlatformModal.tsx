@@ -4,6 +4,7 @@ import { useI18n } from '../lib/i18n/I18nContext';
 import { SUPPORTED_LOCALES } from '../lib/i18n/translations';
 import { buildPythonCliScript, buildWindowsRegScript } from '../lib/markitdown/postit';
 import type { AppTheme, LanguagePreference } from '../lib/markitdown/types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface CrossPlatformModalProps {
   open: boolean;
@@ -41,6 +42,14 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
   lastAutoSavedAt,
 }) => {
   const { t, locale, languagePref, setLanguagePref } = useI18n();
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
   if (!open) return null;
 
   return (
@@ -284,40 +293,43 @@ export const CrossPlatformModal: React.FC<CrossPlatformModalProps> = ({
             </div>
           </section>
 
-          {/* Native Windows Rust + Win32 Distribution (RE:Notepad architecture) */}
+          {/* Native Cross-OS Editions & Open-Source Code Signing Certification */}
           <section className="space-y-2.5">
             <h3
               className="text-xs font-semibold uppercase tracking-wider"
               style={{ color: 'var(--md-text-muted)' }}
             >
               {locale === 'it'
-                ? 'Versione Desktop Windows Nativa (Rust + Win32 · Architettura RE:Notepad)'
-                : 'Native Windows Desktop Edition (Rust + Win32 · RE:Notepad Architecture)'}
+                ? 'Edizioni Native (Windows, Android, macOS, Linux, PWA) & Certificazione Open Source — di Marco Razzano'
+                : 'Native Editions (Windows, Android, macOS, Linux, PWA) & Open-Source Certification — by Marco Razzano'}
             </h3>
             <div
-              className="space-y-2 rounded-md border p-3.5 text-xs"
+              className="space-y-2.5 rounded-md border p-3.5 text-xs"
               style={{ borderColor: 'var(--md-border)', backgroundColor: 'var(--md-surface-alt)' }}
             >
-              <p className="font-medium">
-                {locale === 'it'
-                  ? 'Eseguibile singolo nativo (~700 KB) — Zero Electron, Zero server locali, Zero falsi positivi da dropper auto-estraenti'
-                  : 'Single native executable (~700 KB) — Zero Electron, Zero local servers, Zero self-extracting temp-dropper AV triggers'}
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="font-medium">
+                  {locale === 'it'
+                    ? 'Autore: Marco Razzano · Licenza MIT Open Source · Tutte le funzioni complete + File System nativo'
+                    : 'Author: Marco Razzano · MIT Open Source License · Full UI parity + Native OS Filesystem'}
+                </p>
+                <PWAInstallButton compact />
+              </div>
               <ul className="list-disc space-y-1 pl-4" style={{ color: 'var(--md-text-muted)' }}>
                 <li>
                   {locale === 'it'
-                    ? 'Compilato nativamente in Rust + Win32/GDI su GitHub Actions (native/MDPad.exe) con manifest asInvoker + PerMonitorV2 e metadati VERSIONINFO completi.'
-                    : 'Compiled natively in Rust + Win32/GDI on GitHub Actions (native/MDPad.exe) with asInvoker + PerMonitorV2 manifest and complete VERSIONINFO metadata.'}
+                    ? 'Desktop Windows / macOS / Linux (Tauri v2 Rust + WebView di sistema): interfaccia MDPad completa al 100% con MarkItDown offline, navigazione file/cartelle nativa, zero Electron, zero server locali, installer Inno Setup per-utente (MDPad-1.0.0-setup.exe) e ZIP portatile pulito.'
+                    : 'Windows / macOS / Linux Desktop (Tauri v2 Rust + OS WebView): 100% full MDPad UI with offline MarkItDown, native OS file/folder dialogs, zero Electron, zero local servers, per-user Inno Setup installer (MDPad-1.0.0-setup.exe), and clean Portable ZIP.'}
                 </li>
                 <li>
                   {locale === 'it'
-                    ? 'Distribuzione pulita: Installer Inno Setup per-utente (MDPad-1.0.0-setup.exe, nessun privilegio admin), ZIP portatile pulito (MDPad-1.0.0-portable.zip) e SHA256SUMS.txt.'
-                    : 'Clean distribution: per-user Inno Setup installer (MDPad-1.0.0-setup.exe, no admin required), clean Portable ZIP (MDPad-1.0.0-portable.zip), and SHA256SUMS.txt.'}
+                    ? 'Android nativo (MDPad-1.0.0-android.apk): app predefinita per aprire, modificare e creare file .md, accesso nativo alle cartelle tramite Storage Access Framework (SAF), conversione MarkItDown offline e salvataggio diretto di _POST-IT.md nelle cartelle Android.'
+                    : 'Native Android (MDPad-1.0.0-android.apk): registered default app for opening, editing, and creating .md files, native Storage Access Framework (SAF) folder browsing, offline MarkItDown conversion, and direct _POST-IT.md saving.'}
                 </li>
                 <li>
                   {locale === 'it'
-                    ? 'Zero chiamate di rete all’avvio; supporta firma Authenticode opzionale tramite secret GitHub Actions (WIN_CSC_PFX_BASE64 / WIN_CSC_PASSWORD) per eliminare anche il prompt SmartScreen.'
-                    : 'Zero startup network calls; supports optional Authenticode code signing via GitHub Actions secrets (WIN_CSC_PFX_BASE64 / WIN_CSC_PASSWORD) to eliminate SmartScreen prompts.'}
+                    ? 'Certificazione gratuita Open Source (SmartScreen): predisposto per SignPath Foundation (gratuito per progetti OSS su GitHub tramite secret SIGNPATH_API_TOKEN / SIGNPATH_ORG_ID), certificato Authenticode PFX (WIN_CSC_PFX_BASE64) e firma Android Release Keystore (vedi CODE_SIGNING_OSS.md).'
+                    : 'Free Open-Source Certification (SmartScreen): pre-wired for SignPath Foundation (free for OSS GitHub repos via SIGNPATH_API_TOKEN / SIGNPATH_ORG_ID), Authenticode PFX (WIN_CSC_PFX_BASE64), and Android Release Keystore (see CODE_SIGNING_OSS.md).'}
                 </li>
               </ul>
             </div>

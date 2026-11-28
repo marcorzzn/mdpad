@@ -609,8 +609,50 @@ export async function startMdPadServer(
     } else {
       const { createServer: createViteServer } = await import('vite');
       const vite = await createViteServer({
-        server: { middlewareMode: true, hmr: false },
+        server: { middlewareMode: true, hmr: false, ws: false },
         appType: 'spa',
+      });
+      // HMR is disabled: serve a lightweight, zero-WebSocket @vite/client shim so
+      // Vite's injected client script never attempts a failing WS connection behind proxies.
+      app.get('/@vite/client', (_req, res) => {
+        res.type('application/javascript; charset=utf-8').send(`
+const sheetsMap = new Map();
+export function updateStyle(id, content) {
+  let style = sheetsMap.get(id);
+  if (!style) {
+    style = document.createElement('style');
+    style.setAttribute('type', 'text/css');
+    style.setAttribute('data-vite-dev-id', id);
+    style.textContent = content;
+    document.head.appendChild(style);
+    sheetsMap.set(id, style);
+  } else {
+    style.textContent = content;
+  }
+}
+export function removeStyle(id) {
+  const style = sheetsMap.get(id);
+  if (style && style.parentNode) {
+    style.parentNode.removeChild(style);
+    sheetsMap.delete(id);
+  }
+}
+export function createHotContext() {
+  return {
+    data: {},
+    accept() {},
+    acceptExports() {},
+    dispose() {},
+    prune() {},
+    invalidate() {},
+    on() {},
+    off() {},
+    send() {},
+  };
+}
+export function injectQuery(url) { return url; }
+export class ErrorOverlay extends HTMLElement {}
+`);
       });
       app.use(vite.middlewares);
     }
